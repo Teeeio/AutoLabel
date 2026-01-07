@@ -1,0 +1,6 @@
+{
+  "name": "@rd/core",
+  "private": true,
+  "version": "0.0.0",
+  "main": "src/card.js"
+}
