@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ï»¿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const demoCard = {
   id: "bv-demo-01",
@@ -109,6 +109,14 @@ function patchWebviewIframeHeight(webview) {
   return true;
 }
 
+function patchSearchWebviewIframeHeight(webview) {
+  const iframe = webview?.shadowRoot?.querySelector("iframe");
+  if (!iframe) return false;
+  iframe.style.height = "100%";
+  iframe.style.minHeight = "100%";
+  return true;
+}
+
 function findSegmentIndex(time, segments) {
   if (!segments?.length || !Number.isFinite(time)) return 0;
   let low = 0;
@@ -197,11 +205,17 @@ export default function App() {
   const [parseInput, setParseInput] = useState("");
   const [parseQueue, setParseQueue] = useState([]);
   const [isBatchResolving, setIsBatchResolving] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("random dance");
+  const [searchUrl, setSearchUrl] = useState(
+    "https://search.bilibili.com/all?keyword=random%20dance"
+  );
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
   const parseQueueRef = useRef([]);
   const [cachedRangesMap, setCachedRangesMap] = useState({});
   const [previewSource, setPreviewSource] = useState(null);
   const [thumbs, setThumbs] = useState({ start: "", end: "" });
   const prefetchRef = useRef({ inflight: false, lastKey: "", lastAt: 0 });
+  const searchWebviewRef = useRef(null);
   const useEmbedPlayer = true;
   const useEmbedHijack = true;
   const sendPlayerCommand = useCallback((type, payload = {}) => {
@@ -262,6 +276,7 @@ export default function App() {
   const prefetchCooldownMs = 250;
   const cacheEpsilon = 0.05;
   const rangeEpsilon = 0.05;
+  const searchResultsLimit = 6;
   const isTimeCached = useCallback(
     (time) => {
       if (!Number.isFinite(time)) return false;
@@ -605,7 +620,7 @@ export default function App() {
     setIsBuffering(false);
     setIsDashMode(false);
     resetDash();
-    if (!activeCard?.bvid || resolvingRef.current) return;
+    if (!activeCard?.bvid) return;
     const nextStart = Number.isFinite(activeCard.start) ? activeCard.start : 0;
     const durationCap = Number.isFinite(activeCard.sourceDuration) ? activeCard.sourceDuration : 0;
     const fallbackEnd = durationCap ? Math.min(30, durationCap) : 30;
@@ -617,88 +632,8 @@ export default function App() {
     const embedUrl =
       activeCard.resolvedUrl ||
       buildEmbedUrl({ bvid: activeCard.bvid, aid: activeCard.aid, cid: activeCard.cid });
-    const cachedDuration = Number.isFinite(activeCard.sourceDuration) ? activeCard.sourceDuration : 0;
-    if (cachedDuration > 0) {
-      setSourceDuration(cachedDuration);
-      setPreviewUrl(embedUrl);
-      setIsResolving(false);
-      return;
-    }
-    resolvingRef.current = true;
-    setIsResolving(true);
-    window.preview
-      ?.info({ bvid: activeCard.bvid })
-      .then((info) => {
-        if (Number.isFinite(info?.duration) && info.duration > 0) {
-          setSourceDuration(info.duration);
-        }
-        if (activeId?.startsWith("source-")) {
-          setParseQueue((prev) =>
-            prev.map((entry) =>
-              entry.bvid === activeCard.bvid
-                ? {
-                    ...entry,
-                    status: "ready",
-                    title: info?.title || entry.title || "",
-                    duration: Number.isFinite(info?.duration) ? info.duration : entry.duration,
-                    url: embedUrl
-                  }
-                : entry
-            )
-          );
-          setPreviewSource((prev) => {
-            if (!prev || prev.bvid !== activeCard.bvid) return prev;
-            return {
-              ...prev,
-              title: info?.title || prev.title,
-              sourceDuration: Number.isFinite(info?.duration) ? info.duration : prev.sourceDuration,
-              aid: info?.aid || prev.aid,
-              cid: info?.cid || prev.cid,
-              resolvedUrl: embedUrl
-            };
-          });
-        } else if (activeCardInLibrary && Number.isFinite(info?.duration) && info.duration > 0) {
-          setCards((prev) =>
-            prev.map((card) =>
-              card.id === activeId
-                ? {
-                    ...card,
-                    sourceDuration: info.duration,
-                    aid: info?.aid || card.aid,
-                    cid: info?.cid || card.cid,
-                    resolvedUrl: embedUrl
-                  }
-                : card
-            )
-          );
-          setSelection((prev) =>
-            prev.map((card) =>
-              card.id === activeId
-                ? {
-                    ...card,
-                    sourceDuration: info.duration,
-                    aid: info?.aid || card.aid,
-                    cid: info?.cid || card.cid,
-                    resolvedUrl: embedUrl
-                  }
-                : card
-            )
-          );
-        }
-        const freshUrl = buildEmbedUrl({
-          bvid: activeCard.bvid,
-          aid: info?.aid || activeCard.aid,
-          cid: info?.cid || activeCard.cid
-        });
-        setPreviewUrl(freshUrl);
-      })
-      .catch((err) => {
-        setPreviewError(err?.message || "Failed to parse video info.");
-      })
-      .finally(() => {
-        resolvingRef.current = false;
-        setIsResolving(false);
-      });
+    setPreviewUrl(embedUrl);
+    setIsResolving(false);
   }, [activeId, activeCard?.bvid, previewQuality, resetDash, activeCardInLibrary]);
 
   useEffect(() => {
@@ -902,6 +837,22 @@ export default function App() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const buildSearchUrl = useCallback((query) => {
+    const keyword = encodeURIComponent(query.trim());
+    if (!keyword) return "https://search.bilibili.com/all";
+    return `https://search.bilibili.com/all?keyword=${keyword}`;
+  }, []);
+
+  const handleSearchSubmit = useCallback(
+    (event) => {
+      if (event?.preventDefault) event.preventDefault();
+      const trimmed = searchQuery.trim();
+      if (!trimmed) return;
+      setSearchUrl(buildSearchUrl(trimmed));
+    },
+    [searchQuery, buildSearchUrl]
+  );
+
   const enqueueParseSources = () => {
     const raw = parseInput.trim();
     if (!raw) return;
@@ -1001,9 +952,6 @@ export default function App() {
 
   const handleQueuePreview = (item) => {
     if (!item?.bvid) return;
-    if (item.status === "pending" || item.status === "error") {
-      resolveQueueItem(item);
-    }
     const resolvedDuration = Number.isFinite(item.duration) ? item.duration : 0;
     const previewCard = {
       id: `source-${item.bvid}`,
@@ -1055,17 +1003,23 @@ export default function App() {
 
   const handleAddCard = () => {
     setError("");
-    const bvid = extractBvid(form.source);
+    const rawSource = form.source || activeCard?.bvid || "";
+    const bvid = extractBvid(rawSource);
     if (!form.title.trim()) return setError("Title is required.");
     if (!form.artist.trim()) return setError("Artist is required.");
     if (!bvid) return setError("Please provide a valid Bilibili BV id or URL.");
 
+    const startValue = Number.isFinite(rangeStart) ? rangeStart : 0;
+    const endValue = Number.isFinite(rangeEnd) ? rangeEnd : startValue + 30;
+    const start = Math.min(startValue, endValue);
+    const end = Math.max(startValue, endValue);
+
     const newCard = {
-      id: `${bvid}-${Date.now()}`,
+      id: bvid + "-" + Date.now(),
       title: form.title.trim(),
       artist: form.artist.trim(),
-      start: 0,
-      end: 30,
+      start,
+      end,
       bvid,
       tags: form.tags.trim(),
       bpm: form.bpm.trim()
@@ -1081,6 +1035,21 @@ export default function App() {
       if (prev.find((item) => item.id === card.id)) return prev;
       return [...prev, card];
     });
+  };
+
+  const handleSelectActive = () => {
+    const card = cards.find((item) => item.id === activeId);
+    if (card) handleSelect(card);
+  };
+
+  const handleUseActiveSource = () => {
+    if (!activeCard?.bvid) return;
+    setForm((prev) => ({
+      ...prev,
+      title: prev.title || activeCard.title || "",
+      artist: prev.artist || activeCard.artist || "",
+      source: activeCard.bvid
+    }));
   };
 
   const handleRemove = (cardId) => {
@@ -1161,20 +1130,15 @@ export default function App() {
     setIsResolving(true);
     resolvingRef.current = true;
     try {
-      const info = await window.preview?.info({ bvid: activeCard.bvid });
-      if (Number.isFinite(info?.duration) && info.duration > 0) {
-        setSourceDuration(info.duration);
-      }
       const nextUrl = buildEmbedUrl({
         bvid: activeCard.bvid,
-        aid: info?.aid || activeCard.aid,
-        cid: info?.cid || activeCard.cid
+        aid: activeCard.aid,
+        cid: activeCard.cid
       });
       setPreviewUrl(activeCard.resolvedUrl || nextUrl);
       setIsBuffering(false);
     } catch (err) {
-      setPreviewError(err?.message || "Failed to parse video info.");
-      markQueueError(activeCard.bvid, err);
+      setPreviewError(err?.message || "Failed to load preview.");
     } finally {
       resolvingRef.current = false;
       setIsResolving(false);
@@ -1317,6 +1281,289 @@ export default function App() {
       if (loadingTimer) clearTimeout(loadingTimer);
     };
   }, [rangeStart, rangeEnd, volume, isMuted, playbackRate, sendPlayerCommand, useEmbedHijack]);
+
+  useEffect(() => {
+    const view = searchWebviewRef.current;
+    if (!view || !searchUrl) return;
+    const limit = Math.max(1, searchResultsLimit);
+    const searchCss = `
+      html, body { height: 100% !important; }
+      body { overflow: hidden !important; background: #ffffff !important; }
+      #biliMainHeader,
+      .bili-header,
+      .bili-header-m,
+      .international-header,
+      .bili-footer,
+      .search-header,
+      .search-footer,
+      .search-sidebar,
+      .search-page-right,
+      .search-right,
+      .search-tag,
+      .recommend-wrapper,
+      .nav-search-box {
+        display: none !important;
+      }
+      .search-page,
+      .search-content,
+      .search-container,
+      .search-wrap {
+        padding: 0 12px !important;
+        margin: 0 !important;
+      }
+      .search-page .video-list,
+      .search-all-list {
+        margin-top: 12px !important;
+      }
+    `;
+      const isolateScript = `
+        (() => {
+          const thresholdCount = 12;
+          const selector =
+            "#i_cecream > div > div:nth-child(2) > div.search-content--gray.search-content > div > div > div > div.video.i_wrapper.search-all-list > div";
+          const body = document.body;
+          const root = document.documentElement;
+          root.style.overflow = "hidden";
+        body.style.margin = "0";
+        body.style.padding = "0";
+        body.style.background = "#ffffff";
+        body.style.display = "flex";
+        body.style.flexDirection = "column";
+        body.style.height = "100%";
+        Array.from(body.children).forEach((el) => {
+          el.style.display = "none";
+        });
+        let list = document.getElementById("rdg-search-list");
+        if (!list) {
+          list = document.createElement("div");
+          list.id = "rdg-search-list";
+          body.appendChild(list);
+        }
+        list.style.display = "flex";
+        list.style.flexDirection = "column";
+        list.style.gap = "12px";
+        list.style.padding = "12px";
+          list.style.overflow = "auto";
+          list.style.height = "100%";
+          list.style.boxSizing = "border-box";
+          list.innerHTML = "";
+          const seen = new Set();
+          const parseCardsFromDocument = (doc) => {
+            const rootNode = doc.querySelector(selector);
+            if (!rootNode) return [];
+            return Array.from(rootNode.children || []);
+          };
+          const getBvid = (card) => {
+            const link = card.querySelector("a[href*='BV']") || card.querySelector("a");
+            const url = link ? link.href : "";
+            if (!url) return "";
+            const match = url.match(/BV[0-9A-Za-z]{10}/);
+            return match ? match[0] : "";
+          };
+          const makeCard = (card) => {
+            const pos = window.getComputedStyle(card).position;
+            if (pos === "absolute" || pos === "fixed") {
+              card.style.setProperty("position", "relative", "important");
+              card.style.setProperty("left", "auto", "important");
+              card.style.setProperty("top", "auto", "important");
+              card.style.setProperty("transform", "none", "important");
+            }
+            const wrapper = document.createElement("div");
+            wrapper.className = "rdg-search-item";
+            wrapper.style.position = "relative";
+            wrapper.style.width = "100%";
+            wrapper.style.display = "block";
+            wrapper.style.flex = "0 0 auto";
+            wrapper.style.cursor = "pointer";
+            wrapper.style.overflow = "hidden";
+            const overlay = document.createElement("div");
+            overlay.className = "rdg-search-mask";
+            overlay.style.position = "absolute";
+            overlay.style.inset = "0";
+          overlay.style.background = "linear-gradient(180deg, rgba(15,23,42,0) 0%, rgba(15,23,42,0.35) 55%, rgba(15,23,42,0.6) 100%)";
+            overlay.style.pointerEvents = "auto";
+            const radius = window.getComputedStyle(card).borderRadius || "12px";
+            overlay.style.borderRadius = radius;
+            overlay.style.opacity = "0.9";
+          overlay.style.transition = "opacity 0.15s ease";
+          overlay.style.zIndex = "3";
+          const label = document.createElement("div");
+          label.textContent = "Join Preview";
+          label.style.position = "absolute";
+          label.style.right = "12px";
+          label.style.bottom = "12px";
+          label.style.padding = "4px 8px";
+          label.style.borderRadius = "999px";
+          label.style.background = "rgba(15, 23, 42, 0.75)";
+          label.style.color = "#f8fafc";
+          label.style.fontSize = "12px";
+          label.style.letterSpacing = "0.04em";
+          label.style.textTransform = "uppercase";
+          overlay.appendChild(label);
+          wrapper.addEventListener("mouseenter", () => {
+            overlay.style.opacity = "1";
+          });
+          wrapper.addEventListener("mouseleave", () => {
+            overlay.style.opacity = "0.85";
+          });
+          const handleClick = (event) => {
+            if (event) {
+              event.preventDefault();
+              event.stopPropagation();
+              event.stopImmediatePropagation?.();
+            }
+            const bvid = getBvid(card);
+            if (!bvid) return;
+            console.log("rdg-bvid:" + bvid);
+          };
+            overlay.addEventListener("click", handleClick, true);
+            wrapper.addEventListener("click", handleClick, true);
+            wrapper.addEventListener(
+            "pointerdown",
+            (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              event.stopImmediatePropagation?.();
+            },
+            true
+            );
+            wrapper.appendChild(card);
+            wrapper.appendChild(overlay);
+            list.appendChild(wrapper);
+          };
+          const appendCards = (nodes) => {
+            nodes.forEach((card) => {
+              const bvid = getBvid(card);
+              if (bvid && seen.has(bvid)) return;
+              if (bvid) seen.add(bvid);
+              const clone = card.cloneNode(true);
+              makeCard(clone);
+            });
+          };
+          const state = { loading: false, page: 1, done: false };
+          const getCurrentPage = () => {
+            try {
+              const url = new URL(window.location.href);
+            const page = Number(url.searchParams.get("page"));
+            return Number.isFinite(page) && page > 0 ? page : 1;
+            } catch {
+              return 1;
+            }
+          };
+          state.page = getCurrentPage();
+          const buildPageUrl = (page) => {
+            const url = new URL(window.location.href);
+            url.searchParams.set("page", String(page));
+            return url.toString();
+          };
+          const loadPage = async (page) => {
+            const url = buildPageUrl(page);
+            try {
+              const res = await fetch(url, { credentials: "include" });
+              if (!res.ok) return [];
+              const html = await res.text();
+              const doc = new DOMParser().parseFromString(html, "text/html");
+              return parseCardsFromDocument(doc);
+            } catch {
+              return [];
+            }
+          };
+          const loadNextPage = async () => {
+            if (state.loading || state.done) return;
+            state.loading = true;
+            const nextPage = state.page + 1;
+            let nextCards = await loadPage(nextPage);
+            if (!nextCards.length) {
+              state.done = true;
+              state.loading = false;
+              return;
+            }
+            appendCards(nextCards);
+            state.page = nextPage;
+            state.loading = false;
+            setTimeout(() => {
+              if (list.scrollHeight <= list.clientHeight && !state.done) {
+                loadNextPage();
+              }
+            }, 0);
+          };
+          const shouldLoadNext = () => {
+            const remainingPx = list.scrollHeight - (list.scrollTop + list.clientHeight);
+            const firstItem = list.firstElementChild;
+            const itemHeight = firstItem ? firstItem.getBoundingClientRect().height + 12 : 180;
+            const remainingCount = itemHeight ? remainingPx / itemHeight : 0;
+            return remainingCount <= thresholdCount;
+          };
+          list.addEventListener("scroll", () => {
+            if (shouldLoadNext()) loadNextPage();
+          });
+          const bootstrap = async () => {
+            const listRoot = document.querySelector(selector);
+            const initialDomCards = listRoot ? Array.from(listRoot.children || []) : [];
+            if (initialDomCards.length) {
+              appendCards(initialDomCards);
+            }
+            const initialCards = await loadPage(state.page);
+            if (initialCards.length) {
+              appendCards(initialCards);
+            }
+            if (list.scrollHeight <= list.clientHeight) {
+              loadNextPage();
+            }
+          };
+          bootstrap();
+        })();
+      `;
+    const applySearchPatch = () => {
+      view.insertCSS(searchCss);
+      view.executeJavaScript(isolateScript, true);
+      patchSearchWebviewIframeHeight(view);
+    };
+    const handleDomReady = () => {
+      setIsSearchLoading(false);
+      applySearchPatch();
+    };
+    const handleStartLoading = () => {
+      setIsSearchLoading(true);
+    };
+    const handleStopLoading = () => {
+      setIsSearchLoading(false);
+      applySearchPatch();
+    };
+    const handleNavigate = (event) => {
+      const bvid = extractBvid(event.url);
+      if (!bvid) return;
+      if (event.preventDefault) event.preventDefault();
+      handleQueuePreview({ bvid, status: "ready" });
+    };
+    const handleNewWindow = (event) => {
+      const bvid = extractBvid(event.url);
+      if (!bvid) return;
+      if (event.preventDefault) event.preventDefault();
+      handleQueuePreview({ bvid, status: "ready" });
+    };
+    const handleConsoleMessage = (event) => {
+      const text = event.message || "";
+      if (!text.startsWith("rdg-bvid:")) return;
+      const bvid = text.replace("rdg-bvid:", "").trim();
+      if (!bvid) return;
+      handleQueuePreview({ bvid, status: "ready" });
+    };
+    view.addEventListener("dom-ready", handleDomReady);
+    view.addEventListener("did-start-loading", handleStartLoading);
+    view.addEventListener("did-stop-loading", handleStopLoading);
+    view.addEventListener("will-navigate", handleNavigate);
+    view.addEventListener("new-window", handleNewWindow);
+    view.addEventListener("console-message", handleConsoleMessage);
+    return () => {
+      view.removeEventListener("dom-ready", handleDomReady);
+      view.removeEventListener("did-start-loading", handleStartLoading);
+      view.removeEventListener("did-stop-loading", handleStopLoading);
+      view.removeEventListener("will-navigate", handleNavigate);
+      view.removeEventListener("new-window", handleNewWindow);
+      view.removeEventListener("console-message", handleConsoleMessage);
+    };
+  }, [searchUrl, searchResultsLimit, handleQueuePreview]);
 
 
   const seekTo = (clientX) => {
@@ -1478,17 +1725,52 @@ export default function App() {
 
   return (
     <div className="app">
-        <header className="topbar">
-          <div className="brand">Random Dance Generator</div>
-          <div className="cta">
-            <button onClick={handleReload}>Reload UI</button>
-            <button onClick={handleLogin}>Bilibili Login</button>
+      <header className="topbar">
+        <div className="brand">Random Dance Generator</div>
+        <div className="topbar-meta">
+          <span>Auth: {authStatus}</span>
+          <span>Cards: {cards.length}</span>
+          <span>Selected: {selection.length}</span>
+        </div>
+      </header>
+      <main className="workspace">
+        <section className="panel panel-sources">
+          <div className="panel-title-row">
+            <h2>Bilibili Search</h2>
+            <span className="panel-count">Top {searchResultsLimit}</span>
           </div>
-        </header>
+          <form className="search-form" onSubmit={handleSearchSubmit}>
+            <input
+              className="search-input"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search on Bilibili"
+            />
+            <button type="submit">Search</button>
+          </form>
+          <div className="search-hint">Click a result to preview.</div>
+          <div className="search-frame">
+            <webview
+              ref={searchWebviewRef}
+              src={searchUrl}
+              className={"search-webview" + (isSearchLoading ? " is-loading" : "")}
+              style={{ width: "100%", height: "100%", minHeight: "100%" }}
+              allowpopups="true"
+              httpreferrer="https://www.bilibili.com"
+              useragent={bilibiliUserAgent}
+              partition="persist:bili"
+            />
+            {isSearchLoading ? (
+              <div className="search-loading">
+                <div className="preview-loading-spinner" />
+                <div className="search-loading-text">Loading search...</div>
+              </div>
+            ) : null}
+          </div>
+        </section>
 
-      <main className="layout">
         <section className="panel panel-preview">
-          <div className="panel-header">
+          <div className="preview-head">
             <div>
               <h2>Preview</h2>
               <div className="hint">Auth: {authStatus}. Use login if preview fails.</div>
@@ -1498,110 +1780,17 @@ export default function App() {
                   <span className="track-artist">{activeCard.artist}</span>
                 </div>
               ) : null}
-              <div className="quick-switch">
-                {cards.map((card) => (
-                  <button
-                    key={card.id}
-                    className={`chip ${activeId === card.id ? "active" : ""}`}
-                    onClick={() => handlePreviewCard(card)}
-                  >
-                    {card.title}
-                  </button>
-                ))}
-                {parseQueue.filter((item) => item.status !== "invalid").map((item) => (
-                  <button
-                    key={item.id}
-                    className={`chip chip-source ${activeId === `source-${item.bvid}` ? "active" : ""}`}
-                    onClick={() => handleQueuePreview(item)}
-                  >
-                    {item.title || "Untitled video"}
-                  </button>
-                ))}
-              </div>
-              <div className={`parse-queue ${isQueueResolving ? "is-loading" : ""}`}>
-                <div className="parse-queue-header">
-                  <span>Parse Queue</span>
-                  <span className="parse-queue-hint">Auto parse metadata on add ¡¤ retry failed if needed</span>
-                  {isQueueResolving ? <span className="parse-queue-spinner" aria-hidden="true" /> : null}
-                </div>
-                <textarea
-                  className="parse-input"
-                  value={parseInput}
-                  onChange={(event) => setParseInput(event.target.value)}
-                  placeholder="Paste multiple BV URLs or IDs, one per line"
-                  rows={3}
-                />
-                <div className="parse-actions">
-                  <button onClick={enqueueParseSources}>Add to List</button>
-                  <button
-                    onClick={() => resolveParseQueue("failed")}
-                    disabled={isBatchResolving || parseStats.error === 0}
-                    className={isBatchResolving ? "is-loading" : ""}
-                  >
-                    {isBatchResolving ? "Parsing..." : "Retry Failed"}
-                  </button>
-                  <div className="parse-stats">
-                    {parseStats.total ? (
-                      <>
-                        <span>Pending {parseStats.pending}</span>
-                        <span>Resolving {parseStats.resolving}</span>
-                        <span>Ready {parseStats.ready}</span>
-                        <span>Error {parseStats.error}</span>
-                      </>
-                    ) : (
-                      <span>No sources yet</span>
-                    )}
-                  </div>
-                </div>
-                <div className="parse-list">
-                  {parseQueue.length ? (
-                    parseQueue.map((item) => (
-                      <div key={item.id} className={`parse-item ${item.status}`}>
-                        <div className="parse-main">
-                          <div className="parse-title">
-                            {item.title ||
-                              (item.status === "pending"
-                                ? "Title pending"
-                                : item.status === "invalid"
-                                  ? "Invalid source"
-                                  : "Untitled video")}
-                          </div>
-                          <div className="parse-meta">
-                            <span className={`parse-dot ${item.status}`} />
-                            <span>
-                              {item.status === "resolving" && "Parsing"}
-                              {item.status === "ready" && "Ready"}
-                              {item.status === "pending" && "Pending"}
-                              {item.status === "error" && (item.error || "Error")}
-                              {item.status === "invalid" && "Invalid"}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="parse-buttons">
-                          {item.status !== "invalid" ? (
-                            <button onClick={() => handleQueuePreview(item)}>Preview</button>
-                          ) : null}
-                          {item.status !== "invalid" ? (
-                            <button onClick={() => handleQueueUse(item)}>Use</button>
-                          ) : null}
-                          {item.status === "error" ? (
-                            <button onClick={() => resolveQueueItem(item)}>Retry</button>
-                          ) : null}
-                          <button onClick={() => handleQueueRemove(item.id)}>Remove</button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="parse-empty">Add sources to build a queue.</div>
-                  )}
-                </div>
+              <div className="range-chip">
+                Range {formatTime(rangeStart)} - {formatTime(rangeEnd)}
               </div>
             </div>
-              <div className="preview-actions">
-                <button onClick={handleResolvePreview} disabled={isResolving}>
-                  {isResolving ? "Parsing..." : "Retry Parse"}
-                </button>
-              </div>
+            <div className="preview-actions">
+              <button onClick={handleResolvePreview} disabled={isResolving}>
+                {isResolving ? "Parsing..." : "Retry Parse"}
+              </button>
+              <button onClick={handleLogin}>Bilibili Login</button>
+              <button onClick={handleReload}>Reload UI</button>
+            </div>
           </div>
           {activeCard ? (
             <div className="preview-body">
@@ -1609,7 +1798,7 @@ export default function App() {
                 <webview
                   ref={webviewRef}
                   src={previewUrl}
-                  className={`player-webview embed-player ${isLoadingPreview ? "is-loading" : ""}`}
+                  className={"player-webview embed-player " + (isLoadingPreview ? "is-loading" : "")}
                   style={{ width: "100%", height: "100%", minHeight: "100%" }}
                   allowpopups="true"
                   httpreferrer="https://www.bilibili.com"
@@ -1620,140 +1809,182 @@ export default function App() {
               ) : (
                 <div className="placeholder">Resolve preview to play.</div>
               )}
-              {(isLoadingPreview || isResolving) ? (
+              {isLoadingPreview || isResolving ? (
                 <div className="preview-loading">
                   <div className="preview-loading-spinner" />
-                  <div className="preview-loading-text">Loading preview¡­</div>
+                  <div className="preview-loading-text">Loading preview...</div>
                 </div>
               ) : null}
               {previewError ? <div className="error">{previewError}</div> : null}
-              {activeCard.tags || activeCard.bpm ? (
-                <div className="track-notes">
-                  {activeCard.tags ? <span>Tags: {activeCard.tags}</span> : null}
-                  {activeCard.bpm ? <span>BPM: {activeCard.bpm}</span> : null}
-                </div>
-              ) : null}
             </div>
           ) : (
-            <div className="list-item">Select a card to preview.</div>
+            <div className="placeholder">Select a source to preview.</div>
           )}
+          {activeCard && (activeCard.tags || activeCard.bpm) ? (
+            <div className="track-notes">
+              {activeCard.tags ? <span>Tags: {activeCard.tags}</span> : null}
+              {activeCard.bpm ? <span>BPM: {activeCard.bpm}</span> : null}
+            </div>
+          ) : null}
         </section>
 
-        <section className="panel">
-          <h2>Create Card</h2>
-          <div className="form">
-            <div className="field">
-              <label>Title</label>
-              <input
-                value={form.title}
-                onChange={(event) => updateForm("title", event.target.value)}
-                placeholder="Song title"
-              />
+        <section className="panel panel-editor">
+          <div className="editor-section">
+            <div className="panel-title-row">
+              <h2>Card Builder</h2>
+              <button
+                className="ghost"
+                onClick={handleUseActiveSource}
+                disabled={!activeCard?.bvid}
+              >
+                Use Active Source
+              </button>
             </div>
-            <div className="field">
-              <label>Artist</label>
-              <input
-                value={form.artist}
-                onChange={(event) => updateForm("artist", event.target.value)}
-                placeholder="Artist name"
-              />
-            </div>
-            <div className="field">
-              <label>Bilibili BV id or URL</label>
-              <input
-                value={form.source}
-                onChange={(event) => updateForm("source", event.target.value)}
-                placeholder="BVxxxx... or https://www.bilibili.com/video/BV..."
-              />
-            </div>
-            <details className="advanced">
-              <summary>Advanced options</summary>
-              <div className="row">
-                <div className="field">
-                  <label>Tags</label>
-                  <input
-                    value={form.tags}
-                    onChange={(event) => updateForm("tags", event.target.value)}
-                    placeholder="genre:pop, dance:random"
-                  />
-                </div>
-                <div className="field">
-                  <label>BPM</label>
-                  <input
-                    value={form.bpm}
-                    onChange={(event) => updateForm("bpm", event.target.value)}
-                    placeholder="120"
-                  />
+            <div className="range-readout">
+              <div>
+                <div className="range-label">Range</div>
+                <div className="range-value">
+                  {formatTime(rangeStart)} - {formatTime(rangeEnd)}
                 </div>
               </div>
-            </details>
-            {error ? <div className="error">{error}</div> : null}
-            <button className="primary" onClick={handleAddCard}>Create Card</button>
-          </div>
-        </section>
-
-        <section className="panel">
-          <h2>Card Library</h2>
-          <div className="list">
-            {cards.map((card) => (
-              <div key={card.id} className="list-item">
-                <div className="list-row">
-                  <div>
-                    <strong>{card.title}</strong> ¡ª {card.artist}
+              <div className="range-hint">Drag handles in the player to set.</div>
+            </div>
+            <div className="form">
+              <div className="field">
+                <label>Title</label>
+                <input
+                  value={form.title}
+                  onChange={(event) => updateForm("title", event.target.value)}
+                  placeholder="Song title"
+                />
+              </div>
+              <div className="field">
+                <label>Artist</label>
+                <input
+                  value={form.artist}
+                  onChange={(event) => updateForm("artist", event.target.value)}
+                  placeholder="Artist name"
+                />
+              </div>
+              <div className="field">
+                <label>Bilibili BV id or URL</label>
+                <input
+                  value={form.source}
+                  onChange={(event) => updateForm("source", event.target.value)}
+                  placeholder="BVxxxx... or https://www.bilibili.com/video/BV..."
+                />
+              </div>
+              <details className="advanced">
+                <summary>Advanced options</summary>
+                <div className="row">
+                  <div className="field">
+                    <label>Tags</label>
+                    <input
+                      value={form.tags}
+                      onChange={(event) => updateForm("tags", event.target.value)}
+                      placeholder="genre:pop, dance:random"
+                    />
                   </div>
-                  <div className="segment">{formatTime(card.start)} - {formatTime(card.end)}</div>
+                  <div className="field">
+                    <label>BPM</label>
+                    <input
+                      value={form.bpm}
+                      onChange={(event) => updateForm("bpm", event.target.value)}
+                      placeholder="120"
+                    />
+                  </div>
                 </div>
-                <div className="list-actions">
-                  <button onClick={() => handlePreviewCard(card)}>Preview</button>
-                  <button onClick={() => handleSelect(card)}>Add</button>
-                </div>
-              </div>
-            ))}
+              </details>
+            </div>
+            {error ? <div className="error">{error}</div> : null}
+            <div className="builder-actions">
+              <button className="primary" onClick={handleAddCard}>
+                Save to Library
+              </button>
+              <button
+                className="ghost"
+                onClick={handleSelectActive}
+                disabled={!activeCardInLibrary}
+              >
+                Add Active to Selection
+              </button>
+            </div>
           </div>
-        </section>
 
-        <section className="panel">
-          <h2>Selection</h2>
-          <div className="list">
-            {selection.length === 0 ? (
-              <div className="list-item">No cards selected.</div>
-            ) : (
-              selection.map((item) => (
-                <div key={item.id} className="list-item">
+          <div className="editor-section">
+            <div className="panel-title-row">
+              <h3>Card Library</h3>
+              <span className="panel-count">{cards.length}</span>
+            </div>
+            <div className="list list-compact">
+              {cards.map((card) => (
+                <div key={card.id} className="list-item">
                   <div className="list-row">
                     <div>
-                      <strong>{item.title}</strong> ¡ª {item.artist}
+                      <strong>{card.title}</strong> - {card.artist}
                     </div>
-                    <div className="segment">{formatTime(item.start)} - {formatTime(item.end)}</div>
+                    <div className="segment">
+                      {formatTime(card.start)} - {formatTime(card.end)}
+                    </div>
                   </div>
                   <div className="list-actions">
-                    <button onClick={() => handleRemove(item.id)}>Remove</button>
+                    <button onClick={() => handlePreviewCard(card)}>Preview</button>
+                    <button onClick={() => handleSelect(card)}>Add</button>
                   </div>
                 </div>
-              ))
-            )}
+              ))}
+            </div>
           </div>
-        </section>
 
-        <section className="panel">
-          <h2>Generation</h2>
-          <div className="status">Status: {status}</div>
-          <div className="list">
-            {progress.length === 0 ? (
-              <div className="list-item">No progress yet.</div>
-            ) : (
-              progress.map((item, index) => (
-                <div key={`${item.step}-${index}`} className="list-item">
-                  {item.current}/{item.total} - {item.label}
-                </div>
-              ))
-            )}
+          <div className="editor-section">
+            <div className="panel-title-row">
+              <h3>Selection</h3>
+              <span className="panel-count">{selection.length}</span>
+            </div>
+            <div className="list list-compact">
+              {selection.length === 0 ? (
+                <div className="list-item">No cards selected.</div>
+              ) : (
+                selection.map((item) => (
+                  <div key={item.id} className="list-item">
+                    <div className="list-row">
+                      <div>
+                        <strong>{item.title}</strong> - {item.artist}
+                      </div>
+                      <div className="segment">
+                        {formatTime(item.start)} - {formatTime(item.end)}
+                      </div>
+                    </div>
+                    <div className="list-actions">
+                      <button onClick={() => handleRemove(item.id)}>Remove</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="generation">
+              <div className="status">Status: {status}</div>
+              <div className="list list-compact">
+                {progress.length === 0 ? (
+                  <div className="list-item">No progress yet.</div>
+                ) : (
+                  progress.map((item, index) => (
+                    <div key={item.step + "-" + index} className="list-item">
+                      {item.current}/{item.total} - {item.label}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </section>
       </main>
     </div>
   );
 }
+
+
+
 
 
 
