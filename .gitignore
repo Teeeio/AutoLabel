@@ -6,3 +6,6 @@ build/
 *.log
 .env
 .env.local
+
+AGENTS.md
+image.png

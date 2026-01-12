@@ -202,6 +202,8 @@ export default function App() {
     tags: "",
     bpm: ""
   });
+  const [tagInput, setTagInput] = useState("");
+  const [tagList, setTagList] = useState([]);
   const [parseInput, setParseInput] = useState("");
   const [parseQueue, setParseQueue] = useState([]);
   const [isBatchResolving, setIsBatchResolving] = useState(false);
@@ -1003,10 +1005,9 @@ export default function App() {
 
   const handleAddCard = () => {
     setError("");
-    const rawSource = form.source || activeCard?.bvid || "";
+    const rawSource = activeCard?.bvid || form.source || "";
     const bvid = extractBvid(rawSource);
     if (!form.title.trim()) return setError("Title is required.");
-    if (!form.artist.trim()) return setError("Artist is required.");
     if (!bvid) return setError("Please provide a valid Bilibili BV id or URL.");
 
     const startValue = Number.isFinite(rangeStart) ? rangeStart : 0;
@@ -1017,17 +1018,19 @@ export default function App() {
     const newCard = {
       id: bvid + "-" + Date.now(),
       title: form.title.trim(),
-      artist: form.artist.trim(),
+      artist: activeCard?.artist || "Unknown",
       start,
       end,
       bvid,
-      tags: form.tags.trim(),
+      tags: tagList.join(", "),
       bpm: form.bpm.trim()
     };
 
     setCards((prev) => [newCard, ...prev]);
     setActiveId(newCard.id);
     setForm({ title: "", artist: "", source: "", tags: "", bpm: "" });
+    setTagInput("");
+    setTagList([]);
   };
 
   const handleSelect = (card) => {
@@ -1054,6 +1057,26 @@ export default function App() {
 
   const handleRemove = (cardId) => {
     setSelection((prev) => prev.filter((item) => item.id !== cardId));
+  };
+
+  const normalizeTag = (value) => value.trim().replace(/^#/, "");
+
+  const handleAddTag = () => {
+    const nextTag = normalizeTag(tagInput);
+    if (!nextTag) return;
+    setTagList((prev) => (prev.includes(nextTag) ? prev : [...prev, nextTag]));
+    setTagInput("");
+  };
+
+  const handleRemoveTag = (tag) => {
+    setTagList((prev) => prev.filter((item) => item !== tag));
+  };
+
+  const handleTagKeyDown = (event) => {
+    if (event.key === "Enter" || event.key === ",") {
+      event.preventDefault();
+      handleAddTag();
+    }
   };
 
   const handleGenerate = async (mode) => {
@@ -1287,8 +1310,32 @@ export default function App() {
     if (!view || !searchUrl) return;
     const limit = Math.max(1, searchResultsLimit);
     const searchCss = `
-      html, body { height: 100% !important; }
+      html, body {
+        height: 100% !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
+        overflow-x: hidden !important;
+        box-sizing: border-box !important;
+      }
       body { overflow: hidden !important; background: #ffffff !important; }
+      *::-webkit-scrollbar {
+        width: 8px !important;
+      }
+      *::-webkit-scrollbar-track {
+        background: transparent !important;
+      }
+      *::-webkit-scrollbar-thumb {
+        background: rgba(15, 23, 42, 0.28) !important;
+        border-radius: 999px !important;
+        border: 2px solid transparent !important;
+        background-clip: padding-box !important;
+      }
+      *::-webkit-scrollbar-thumb:hover {
+        background: rgba(15, 23, 42, 0.45) !important;
+      }
+      *::-webkit-scrollbar-corner {
+        background: transparent !important;
+      }
       #biliMainHeader,
       .bili-header,
       .bili-header-m,
@@ -1324,12 +1371,19 @@ export default function App() {
           const body = document.body;
           const root = document.documentElement;
           root.style.overflow = "hidden";
+        root.style.width = "100vw";
+        root.style.maxWidth = "100vw";
+        root.style.boxSizing = "border-box";
         body.style.margin = "0";
         body.style.padding = "0";
         body.style.background = "#ffffff";
         body.style.display = "flex";
         body.style.flexDirection = "column";
         body.style.height = "100%";
+        body.style.width = "100vw";
+        body.style.maxWidth = "100vw";
+        body.style.boxSizing = "border-box";
+        body.style.overflowX = "hidden";
         Array.from(body.children).forEach((el) => {
           el.style.display = "none";
         });
@@ -1341,8 +1395,14 @@ export default function App() {
         }
         list.style.display = "flex";
         list.style.flexDirection = "column";
+        list.style.alignItems = "stretch";
         list.style.gap = "12px";
-        list.style.padding = "12px";
+        list.style.padding = "12px 0";
+        list.style.width = "100vw";
+        list.style.maxWidth = "100vw";
+        list.style.minWidth = "0";
+        list.style.boxSizing = "border-box";
+        list.style.overflowX = "hidden";
           list.style.overflow = "auto";
           list.style.height = "100%";
           list.style.boxSizing = "border-box";
@@ -1372,18 +1432,27 @@ export default function App() {
             wrapper.className = "rdg-search-item";
             wrapper.style.position = "relative";
             wrapper.style.width = "100%";
+            wrapper.style.maxWidth = "100%";
+            wrapper.style.minWidth = "0";
+            wrapper.style.margin = "0";
             wrapper.style.display = "block";
             wrapper.style.flex = "0 0 auto";
             wrapper.style.cursor = "pointer";
             wrapper.style.overflow = "hidden";
+            wrapper.style.borderRadius = "14px";
+            card.style.setProperty("width", "100%", "important");
+            card.style.setProperty("max-width", "100%", "important");
+            card.style.setProperty("min-width", "0", "important");
+            card.style.setProperty("margin", "0", "important");
+            card.style.setProperty("box-sizing", "border-box", "important");
+            card.style.setProperty("overflow", "hidden", "important");
             const overlay = document.createElement("div");
             overlay.className = "rdg-search-mask";
             overlay.style.position = "absolute";
             overlay.style.inset = "0";
           overlay.style.background = "linear-gradient(180deg, rgba(15,23,42,0) 0%, rgba(15,23,42,0.35) 55%, rgba(15,23,42,0.6) 100%)";
             overlay.style.pointerEvents = "auto";
-            const radius = window.getComputedStyle(card).borderRadius || "12px";
-            overlay.style.borderRadius = radius;
+            overlay.style.borderRadius = "inherit";
             overlay.style.opacity = "0.9";
           overlay.style.transition = "opacity 0.15s ease";
           overlay.style.zIndex = "3";
@@ -1728,7 +1797,6 @@ export default function App() {
       <header className="topbar">
         <div className="brand">Random Dance Generator</div>
         <div className="topbar-meta">
-          <span>Auth: {authStatus}</span>
           <span>Cards: {cards.length}</span>
           <span>Selected: {selection.length}</span>
         </div>
@@ -1770,28 +1838,27 @@ export default function App() {
         </section>
 
         <section className="panel panel-preview">
+          {(() => {
+            const normalized = authStatus?.toLowerCase?.() || "";
+            const isLoggedIn = normalized.includes("logged in");
+            const isLoggingIn = normalized.includes("logging");
+            const authClass = isLoggedIn ? "auth-pill is-ready" : "auth-pill is-missing";
+            const authLabel = isLoggedIn ? "已登录" : isLoggingIn ? "登录中" : "未登录";
+            return (
           <div className="preview-head">
-            <div>
-              <h2>Preview</h2>
-              <div className="hint">Auth: {authStatus}. Use login if preview fails.</div>
-              {activeCard ? (
-                <div className="track-meta">
-                  <span className="track-title">{activeCard.title}</span>
-                  <span className="track-artist">{activeCard.artist}</span>
-                </div>
-              ) : null}
-              <div className="range-chip">
-                Range {formatTime(rangeStart)} - {formatTime(rangeEnd)}
+            <div className="preview-title">
+              <h2>{activeCard?.title || "Preview"}</h2>
+            </div>
+            <div className="preview-toolbar">
+              <div className={authClass}>{authLabel}</div>
+              <div className="preview-actions">
+                <button onClick={handleLogin}>Bilibili Login</button>
+                <button onClick={handleReload}>Reload UI</button>
               </div>
             </div>
-            <div className="preview-actions">
-              <button onClick={handleResolvePreview} disabled={isResolving}>
-                {isResolving ? "Parsing..." : "Retry Parse"}
-              </button>
-              <button onClick={handleLogin}>Bilibili Login</button>
-              <button onClick={handleReload}>Reload UI</button>
-            </div>
           </div>
+            );
+          })()}
           {activeCard ? (
             <div className="preview-body">
               {previewUrl ? (
@@ -1815,17 +1882,15 @@ export default function App() {
                   <div className="preview-loading-text">Loading preview...</div>
                 </div>
               ) : null}
-              {previewError ? <div className="error">{previewError}</div> : null}
+              {previewError && !isLoadingPreview && !isResolving ? (
+                <div className="preview-error">
+                  <button onClick={handleResolvePreview}>Retry Preview</button>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="placeholder">Select a source to preview.</div>
           )}
-          {activeCard && (activeCard.tags || activeCard.bpm) ? (
-            <div className="track-notes">
-              {activeCard.tags ? <span>Tags: {activeCard.tags}</span> : null}
-              {activeCard.bpm ? <span>BPM: {activeCard.bpm}</span> : null}
-            </div>
-          ) : null}
         </section>
 
         <section className="panel panel-editor">
