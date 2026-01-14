@@ -1,16 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-const demoCard = {
-  id: "bv-demo-01",
-  title: "Demo Song",
-  artist: "Demo Artist",
-  start: 0,
-  end: 30,
-  bvid: "BV1Bz4y137hm",
-  tags: "",
-  bpm: ""
-};
-
 function extractBvid(input) {
   if (!input) return "";
   const trimmed = input.trim();
@@ -136,12 +125,11 @@ function findSegmentIndex(time, segments) {
 }
 
 export default function App() {
-  const [cards, setCards] = useState([demoCard]);
-  const [selection, setSelection] = useState([demoCard]);
-  const [activeId, setActiveId] = useState(demoCard.id);
+  const [cards, setCards] = useState([]);
+  const [selection, setSelection] = useState([]);
+  const [activeId, setActiveId] = useState("");
   const [progress, setProgress] = useState([]);
   const [status, setStatus] = useState("idle");
-  const [error, setError] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewError, setPreviewError] = useState("");
   const [isResolving, setIsResolving] = useState(false);
@@ -182,6 +170,8 @@ export default function App() {
   const thumbLastRef = useRef({ start: null, end: null, ts: 0 });
   const resolveKeyRef = useRef("");
   const rangeRef = useRef({ start: rangeStart, end: rangeEnd });
+  const rangePollRef = useRef({ busy: false });
+  const lastRangeUpdateRef = useRef(0);
   const volumeRef = useRef(volume);
   const muteRef = useRef(isMuted);
   const rateRef = useRef(playbackRate);
@@ -204,14 +194,16 @@ export default function App() {
   });
   const [tagInput, setTagInput] = useState("");
   const [tagList, setTagList] = useState([]);
+  const [clipTags, setClipTags] = useState([]);
   const [parseInput, setParseInput] = useState("");
   const [parseQueue, setParseQueue] = useState([]);
   const [isBatchResolving, setIsBatchResolving] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("random dance");
+  const [searchQuery, setSearchQuery] = useState("lovelive");
   const [searchUrl, setSearchUrl] = useState(
-    "https://search.bilibili.com/all?keyword=random%20dance"
+    "https://search.bilibili.com/all?keyword=lovelive"
   );
   const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [searchDebugLines, setSearchDebugLines] = useState([]);
   const parseQueueRef = useRef([]);
   const [cachedRangesMap, setCachedRangesMap] = useState({});
   const [previewSource, setPreviewSource] = useState(null);
@@ -236,6 +228,25 @@ export default function App() {
     return found || previewSource;
   }, [cards, activeId, previewSource]);
   const activeCardInLibrary = useMemo(() => cards.some((card) => card.id === activeId), [cards, activeId]);
+  useEffect(() => {
+    if (!activeCard) return;
+    setForm((prev) => {
+      const next = {
+        ...prev,
+        title: activeCard.title || prev.title || "",
+        artist: activeCard.artist || prev.artist || "",
+        source: activeCard.bvid || prev.source || ""
+      };
+      if (
+        next.title === prev.title &&
+        next.artist === prev.artist &&
+        next.source === prev.source
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [activeCard?.title, activeCard?.artist, activeCard?.bvid]);
   const parseStats = useMemo(() => {
     return parseQueue.reduce(
       (acc, item) => {
@@ -835,14 +846,21 @@ export default function App() {
     };
 }, [safePlay, togglePlayback, toggleMute, seekPlayer, currentTime, previewUrl, isPlaying]);
 
-  const updateForm = (key, value) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
 
   const buildSearchUrl = useCallback((query) => {
     const keyword = encodeURIComponent(query.trim());
     if (!keyword) return "https://search.bilibili.com/all";
     return `https://search.bilibili.com/all?keyword=${keyword}`;
+  }, []);
+
+  const pushSearchDebug = useCallback((message) => {
+    const text = String(message || "").trim();
+    if (!text) return;
+    const stamp = new Date().toTimeString().slice(0, 8);
+    setSearchDebugLines((prev) => {
+      const next = [...prev, `[${stamp}] ${text}`];
+      return next.slice(-120);
+    });
   }, []);
 
   const handleSearchSubmit = useCallback(
@@ -954,19 +972,70 @@ export default function App() {
 
   const handleQueuePreview = (item) => {
     if (!item?.bvid) return;
-    const resolvedDuration = Number.isFinite(item.duration) ? item.duration : 0;
+    const bvid = item.bvid;
+    const existing = parseQueueRef.current.find((entry) => entry.bvid === bvid);
+    const resolvedDuration = Number.isFinite(item.duration)
+      ? item.duration
+      : Number.isFinite(existing?.duration)
+        ? existing.duration
+        : 0;
+    setParseQueue((prev) => {
+      const index = prev.findIndex((entry) => entry.bvid === bvid);
+      if (index === -1) {
+        return [
+          ...prev,
+          {
+            id: `queue-${bvid}-${Date.now()}`,
+            source: item.source || bvid,
+            bvid,
+            status: item.url ? "ready" : "pending",
+            url: item.url || "",
+            title: item.title || "",
+            duration: resolvedDuration,
+            aid: item.aid || "",
+            cid: item.cid || "",
+            segmentStart: item.segmentStart,
+            segmentEnd: item.segmentEnd,
+            error: ""
+          }
+        ];
+      }
+      const current = prev[index];
+      const next = {
+        ...current,
+        title: current.title || item.title || "",
+        duration:
+          Number.isFinite(current.duration) && current.duration > 0
+            ? current.duration
+            : resolvedDuration,
+        aid: current.aid || item.aid || "",
+        cid: current.cid || item.cid || "",
+        url: current.url || item.url || "",
+        segmentStart:
+          Number.isFinite(current.segmentStart) ? current.segmentStart : item.segmentStart,
+        segmentEnd:
+          Number.isFinite(current.segmentEnd) ? current.segmentEnd : item.segmentEnd,
+        status: current.status === "error" ? "pending" : current.status
+      };
+      const changed = Object.keys(next).some((key) => next[key] !== current[key]);
+      if (!changed) return prev;
+      return prev.map((entry, i) => (i === index ? next : entry));
+    });
     const previewCard = {
-      id: `source-${item.bvid}`,
-      title: item.title || form.title || "Untitled",
-      artist: form.artist || "Unknown",
+      id: `source-${bvid}`,
+      title: item.title || existing?.title || "Loading...",
+      artist: item.author || form.artist || "Unknown",
       start: 0,
       end: resolvedDuration ? Math.min(30, resolvedDuration) : 30,
-      bvid: item.bvid,
+      bvid,
       tags: form.tags,
       bpm: form.bpm,
-      aid: item.aid || "",
-      cid: item.cid || "",
-      resolvedUrl: item.url || buildEmbedUrl({ bvid: item.bvid, aid: item.aid, cid: item.cid }),
+      aid: item.aid || existing?.aid || "",
+      cid: item.cid || existing?.cid || "",
+      resolvedUrl:
+        item.url ||
+        existing?.url ||
+        buildEmbedUrl({ bvid, aid: item.aid || existing?.aid, cid: item.cid || existing?.cid }),
       segmentStart: item.segmentStart,
       segmentEnd: item.segmentEnd,
       sourceDuration: resolvedDuration
@@ -993,22 +1062,46 @@ export default function App() {
     setActiveId(card.id);
   };
 
-  const syncCardRange = (startValue, endValue) => {
-    if (!activeCardInLibrary) return;
-    setCards((prev) =>
-      prev.map((card) => (card.id === activeId ? { ...card, start: startValue, end: endValue } : card))
-    );
-    setSelection((prev) =>
-      prev.map((card) => (card.id === activeId ? { ...card, start: startValue, end: endValue } : card))
-    );
-  };
+  const syncCardRange = useCallback(
+    (startValue, endValue) => {
+      if (!activeCardInLibrary) return;
+      setCards((prev) =>
+        prev.map((card) =>
+          card.id === activeId ? { ...card, start: startValue, end: endValue } : card
+        )
+      );
+      setSelection((prev) =>
+        prev.map((card) =>
+          card.id === activeId ? { ...card, start: startValue, end: endValue } : card
+        )
+      );
+    },
+    [activeCardInLibrary, activeId]
+  );
+
+  const updateRangeState = useCallback(
+    (startValue, endValue) => {
+      setRangeStart(startValue);
+      setRangeEnd(endValue);
+      syncCardRange(startValue, endValue);
+      lastRangeStartRef.current = startValue;
+      lastRangeUpdateRef.current = Date.now();
+    },
+    [syncCardRange]
+  );
 
   const handleAddCard = () => {
-    setError("");
     const rawSource = activeCard?.bvid || form.source || "";
     const bvid = extractBvid(rawSource);
-    if (!form.title.trim()) return setError("Title is required.");
-    if (!bvid) return setError("Please provide a valid Bilibili BV id or URL.");
+    const resolvedTitle = (form.title || activeCard?.title || "").trim();
+    if (!resolvedTitle) {
+      alert("Title is required.");
+      return;
+    }
+    if (!bvid) {
+      alert("Please provide a valid Bilibili BV id or URL.");
+      return;
+    }
 
     const startValue = Number.isFinite(rangeStart) ? rangeStart : 0;
     const endValue = Number.isFinite(rangeEnd) ? rangeEnd : startValue + 30;
@@ -1017,12 +1110,14 @@ export default function App() {
 
     const newCard = {
       id: bvid + "-" + Date.now(),
-      title: form.title.trim(),
-      artist: activeCard?.artist || "Unknown",
+      title: resolvedTitle,
+      artist: activeCard?.artist || form.artist || "Unknown",
       start,
       end,
       bvid,
       tags: tagList.join(", "),
+      searchTags: [...tagList],
+      clipTags: [...clipTags],
       bpm: form.bpm.trim()
     };
 
@@ -1031,6 +1126,7 @@ export default function App() {
     setForm({ title: "", artist: "", source: "", tags: "", bpm: "" });
     setTagInput("");
     setTagList([]);
+    setClipTags([]);
   };
 
   const handleSelect = (card) => {
@@ -1040,20 +1136,6 @@ export default function App() {
     });
   };
 
-  const handleSelectActive = () => {
-    const card = cards.find((item) => item.id === activeId);
-    if (card) handleSelect(card);
-  };
-
-  const handleUseActiveSource = () => {
-    if (!activeCard?.bvid) return;
-    setForm((prev) => ({
-      ...prev,
-      title: prev.title || activeCard.title || "",
-      artist: prev.artist || activeCard.artist || "",
-      source: activeCard.bvid
-    }));
-  };
 
   const handleRemove = (cardId) => {
     setSelection((prev) => prev.filter((item) => item.id !== cardId));
@@ -1077,6 +1159,20 @@ export default function App() {
       event.preventDefault();
       handleAddTag();
     }
+  };
+
+  const clipTagOptions = [
+    "占位-快切",
+    "占位-慢放",
+    "占位-卡点",
+    "占位-变速",
+    "占位-转场"
+  ];
+
+  const toggleClipTag = (tag) => {
+    setClipTags((prev) =>
+      prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]
+    );
   };
 
   const handleGenerate = async (mode) => {
@@ -1174,14 +1270,12 @@ export default function App() {
     const absoluteTime = timeValue;
     if (field === "start") {
       const nextStart = clamp(absoluteTime, 0, rangeEnd);
-      setRangeStart(nextStart);
-      syncCardRange(nextStart, rangeEnd);
+      updateRangeState(nextStart, rangeEnd);
       return;
     }
     const maxValue = sourceDuration || duration || absoluteTime;
     const nextEnd = clamp(absoluteTime, rangeStart, maxValue);
-    setRangeEnd(nextEnd);
-    syncCardRange(rangeStart, nextEnd);
+    updateRangeState(rangeStart, nextEnd);
   };
 
   const handleRangeChange = (nextStart, nextEnd) => {
@@ -1189,9 +1283,7 @@ export default function App() {
     const safeStart = clamp(nextStart, 0, maxValue);
     const minSpan = 0.1;
     const safeEnd = clamp(nextEnd, safeStart + minSpan, maxValue);
-    setRangeStart(safeStart);
-    setRangeEnd(safeEnd);
-    syncCardRange(safeStart, safeEnd);
+    updateRangeState(safeStart, safeEnd);
   };
 
   useEffect(() => {
@@ -1214,22 +1306,65 @@ export default function App() {
   }, [previewUrl]);
 
   useEffect(() => {
+    if (!useEmbedHijack || !previewUrl) return;
+    const view = webviewRef.current;
+    if (!view) return;
+    const pollRange = async () => {
+      if (rangePollRef.current.busy) return;
+      if (Date.now() - lastRangeUpdateRef.current < 500) return;
+      rangePollRef.current.busy = true;
+      try {
+        const result = await view.executeJavaScript(
+          `
+          (() => {
+            const wrap =
+              document.querySelector(".bpx-player-progress-wrap") ||
+              document.querySelector(".bpx-player-progress") ||
+              document.querySelector("#bilibili-player .bpx-player-progress-wrap");
+            if (!wrap) return null;
+            const s = Number(wrap.dataset.clipStart);
+            const e = Number(wrap.dataset.clipEnd);
+            if (!Number.isFinite(s) || !Number.isFinite(e)) return null;
+            return { s, e };
+          })();
+        `,
+          true
+        );
+        if (!result) return;
+        const start = Number(result.s);
+        const end = Number(result.e);
+        if (!Number.isFinite(start) || !Number.isFinite(end)) return;
+        if (
+          Math.abs(start - rangeStart) < 0.05 &&
+          Math.abs(end - rangeEnd) < 0.05
+        ) {
+          return;
+        }
+        updateRangeState(start, end);
+      } catch {} finally {
+        rangePollRef.current.busy = false;
+      }
+    };
+    const timer = setInterval(pollRange, 400);
+    return () => clearInterval(timer);
+  }, [previewUrl, rangeStart, rangeEnd, updateRangeState, useEmbedHijack]);
+
+  useEffect(() => {
     if (!useEmbedHijack) return;
     const view = webviewRef.current;
     if (!view) return;
     let loadingTimer = null;
-      const handleMessage = (event) => {
-        if (event.channel === "probe:hit") {
-          console.log("probe:hit", event.args?.[0]);
-          return;
-        }
-        if (event.channel === "player:range") {
+    const handleMessage = (event) => {
+      if (event.channel === "probe:hit") {
+        console.log("probe:hit", event.args?.[0]);
+        return;
+      }
+      if (event.channel === "player:range") {
         const payload = event.args?.[0] || {};
-        if (Number.isFinite(payload.start) && Number.isFinite(payload.end)) {
-          setRangeStart(payload.start);
-          setRangeEnd(payload.end);
-          syncCardRange(payload.start, payload.end);
-          lastRangeStartRef.current = payload.start;
+        const start = Number(payload.start);
+        const end = Number(payload.end);
+        if (Number.isFinite(start) && Number.isFinite(end)) {
+          updateRangeState(start, end);
         }
         return;
       }
@@ -1303,7 +1438,16 @@ export default function App() {
       view.removeEventListener("did-fail-load", handleFailLoad);
       if (loadingTimer) clearTimeout(loadingTimer);
     };
-  }, [rangeStart, rangeEnd, volume, isMuted, playbackRate, sendPlayerCommand, useEmbedHijack]);
+  }, [
+    rangeStart,
+    rangeEnd,
+    volume,
+    isMuted,
+    playbackRate,
+    sendPlayerCommand,
+    useEmbedHijack,
+    updateRangeState
+  ]);
 
   useEffect(() => {
     const view = searchWebviewRef.current;
@@ -1362,225 +1506,600 @@ export default function App() {
       .search-all-list {
         margin-top: 12px !important;
       }
+      .rdg-search-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 12px 0 18px;
+        color: #94a3b8;
+        font-size: 12px;
+      }
+      .rdg-search-loading.is-hidden {
+        display: none !important;
+      }
+      .rdg-search-loading .rdg-spinner {
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        border: 2px solid rgba(15, 23, 42, 0.15);
+        border-top-color: rgba(15, 23, 42, 0.55);
+        animation: rdg-spin 0.9s linear infinite;
+      }
+      @keyframes rdg-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
     `;
       const isolateScript = `
         (() => {
-          const thresholdCount = 12;
-          const selector =
-            "#i_cecream > div > div:nth-child(2) > div.search-content--gray.search-content > div > div > div > div.video.i_wrapper.search-all-list > div";
-          const body = document.body;
-          const root = document.documentElement;
-          root.style.overflow = "hidden";
-        root.style.width = "100vw";
-        root.style.maxWidth = "100vw";
-        root.style.boxSizing = "border-box";
-        body.style.margin = "0";
-        body.style.padding = "0";
-        body.style.background = "#ffffff";
-        body.style.display = "flex";
-        body.style.flexDirection = "column";
-        body.style.height = "100%";
-        body.style.width = "100vw";
-        body.style.maxWidth = "100vw";
-        body.style.boxSizing = "border-box";
-        body.style.overflowX = "hidden";
-        Array.from(body.children).forEach((el) => {
-          el.style.display = "none";
-        });
-        let list = document.getElementById("rdg-search-list");
-        if (!list) {
-          list = document.createElement("div");
-          list.id = "rdg-search-list";
-          body.appendChild(list);
-        }
-        list.style.display = "flex";
-        list.style.flexDirection = "column";
-        list.style.alignItems = "stretch";
-        list.style.gap = "12px";
-        list.style.padding = "12px 0";
-        list.style.width = "100vw";
-        list.style.maxWidth = "100vw";
-        list.style.minWidth = "0";
-        list.style.boxSizing = "border-box";
-        list.style.overflowX = "hidden";
-          list.style.overflow = "auto";
-          list.style.height = "100%";
-          list.style.boxSizing = "border-box";
-          list.innerHTML = "";
-          const seen = new Set();
-          const parseCardsFromDocument = (doc) => {
-            const rootNode = doc.querySelector(selector);
-            if (!rootNode) return [];
-            return Array.from(rootNode.children || []);
-          };
-          const getBvid = (card) => {
-            const link = card.querySelector("a[href*='BV']") || card.querySelector("a");
-            const url = link ? link.href : "";
-            if (!url) return "";
-            const match = url.match(/BV[0-9A-Za-z]{10}/);
-            return match ? match[0] : "";
-          };
-          const makeCard = (card) => {
-            const pos = window.getComputedStyle(card).position;
-            if (pos === "absolute" || pos === "fixed") {
+          try {
+            const thresholdCount = 12;
+            const selectCards = (root) =>
+              Array.from(
+                (root || document).querySelectorAll(".bili-video-card__wrap")
+              );
+            const emit = (message) => {
+              if (!message) return;
+              console.log("rdg-debug:" + message);
+            };
+            const body = document.body;
+            const root = document.documentElement;
+            root.style.overflow = "hidden";
+            root.style.width = "100vw";
+            root.style.maxWidth = "100vw";
+            root.style.boxSizing = "border-box";
+            body.style.margin = "0";
+            body.style.padding = "0";
+            body.style.background = "#ffffff";
+            body.style.display = "flex";
+            body.style.flexDirection = "column";
+            body.style.height = "100%";
+            body.style.width = "100vw";
+            body.style.maxWidth = "100vw";
+            body.style.boxSizing = "border-box";
+            body.style.overflowX = "hidden";
+            Array.from(body.children).forEach((el) => {
+              if (
+                el.id === "rdg-search-list" ||
+                el.id === "rdg-search-loader"
+              ) {
+                return;
+              }
+              el.style.display = "none";
+            });
+            let list = document.getElementById("rdg-search-list");
+            if (!list) {
+              list = document.createElement("div");
+              list.id = "rdg-search-list";
+              body.appendChild(list);
+              emit("list:init");
+            }
+            list.style.display = "flex";
+            list.style.flexDirection = "column";
+            list.style.alignItems = "stretch";
+            list.style.gap = "12px";
+            list.style.padding = "12px 0";
+            list.style.width = "100vw";
+            list.style.maxWidth = "100vw";
+            list.style.minWidth = "0";
+            list.style.boxSizing = "border-box";
+            list.style.overflowX = "hidden";
+            list.style.overflow = "auto";
+            list.style.height = "100%";
+            list.style.position = "relative";
+            list.style.visibility = "visible";
+            list.style.opacity = "1";
+            let sentinel = document.getElementById("rdg-search-sentinel");
+            if (!sentinel) {
+              sentinel = document.createElement("div");
+              sentinel.id = "rdg-search-sentinel";
+              sentinel.style.width = "100%";
+              sentinel.style.height = "1px";
+              sentinel.style.pointerEvents = "none";
+              list.appendChild(sentinel);
+            }
+            let loader = document.getElementById("rdg-search-loading");
+            if (!loader) {
+              loader = document.createElement("div");
+              loader.id = "rdg-search-loading";
+              loader.className = "rdg-search-loading is-hidden";
+              loader.innerHTML =
+                '<span class="rdg-spinner"></span><span class="rdg-loading-text">Loading...</span>';
+              list.appendChild(loader);
+            }
+            const state = window.__rdgSearchState || {
+              loading: false,
+              pending: false,
+              page: 1,
+              done: false,
+              bootstrapped: false,
+              url: "",
+              lastLoadAt: 0,
+              loadDelayMs: 150,
+              retryMap: {},
+              maxRetries: 1,
+              retryDelayMs: 250,
+              skipOnEmpty: true,
+              emptyStreak: 0,
+              maxEmptyStreak: 3,
+              frameTimeoutMs: 4500
+            };
+            window.__rdgSearchState = state;
+            const currentUrl = window.location.href;
+            const isNewUrl = state.url !== currentUrl;
+            if (isNewUrl) {
+              state.loading = false;
+              state.pending = false;
+              state.page = 1;
+              state.done = false;
+              state.bootstrapped = false;
+              state.url = currentUrl;
+              state.logged = {};
+              state.retryMap = {};
+              state.loadDelayMs = 150;
+              state.emptyStreak = 0;
+              state.skipOnEmpty = true;
+              state.maxEmptyStreak = 3;
+              state.frameTimeoutMs = 4500;
+              if (state.observer) {
+                state.observer.disconnect();
+                state.observer = null;
+              }
+              list.innerHTML = "";
+              if (sentinel) {
+                list.appendChild(sentinel);
+              }
+              if (loader) {
+                list.appendChild(loader);
+              }
+            }
+            if (!Number.isFinite(state.loadDelayMs)) {
+              state.loadDelayMs = 150;
+            }
+            if (!Number.isFinite(state.frameTimeoutMs)) {
+              state.frameTimeoutMs = 4500;
+            }
+            if (state.bootstrapped) return;
+            state.bootstrapped = true;
+            const seen = new Set();
+            const parseCardsFromDocument = (doc) => selectCards(doc);
+            const getBvid = (card) => {
+              const link =
+                card.querySelector("a[href*='BV']") || card.querySelector("a");
+              const url = link ? link.href : "";
+              if (!url) return "";
+              const match = url.match(/BV[0-9A-Za-z]{10}/);
+              return match ? match[0] : "";
+            };
+            const getOuterTag = (card) => {
+              const match = card.outerHTML.match(/^<[^>]+>/);
+              if (match) return match[0];
+              return "<" + card.tagName.toLowerCase() + ">";
+            };
+            const maybeLogFirstTag = (page, source, nodes) => {
+              if (!page || !nodes || !nodes.length) return;
+              if (!state.logged) state.logged = {};
+              const key = "tag:" + source + ":" + page;
+              if (state.logged[key]) return;
+              const tag = getOuterTag(nodes[0]);
+              emit("card:first " + source + " page=" + page + " tag=" + tag);
+              state.logged[key] = true;
+            };
+            const makeCard = (card) => {
               card.style.setProperty("position", "relative", "important");
               card.style.setProperty("left", "auto", "important");
               card.style.setProperty("top", "auto", "important");
+              card.style.setProperty("right", "auto", "important");
+              card.style.setProperty("bottom", "auto", "important");
               card.style.setProperty("transform", "none", "important");
-            }
-            const wrapper = document.createElement("div");
-            wrapper.className = "rdg-search-item";
-            wrapper.style.position = "relative";
-            wrapper.style.width = "100%";
-            wrapper.style.maxWidth = "100%";
-            wrapper.style.minWidth = "0";
-            wrapper.style.margin = "0";
-            wrapper.style.display = "block";
-            wrapper.style.flex = "0 0 auto";
-            wrapper.style.cursor = "pointer";
-            wrapper.style.overflow = "hidden";
-            wrapper.style.borderRadius = "14px";
-            card.style.setProperty("width", "100%", "important");
-            card.style.setProperty("max-width", "100%", "important");
-            card.style.setProperty("min-width", "0", "important");
-            card.style.setProperty("margin", "0", "important");
-            card.style.setProperty("box-sizing", "border-box", "important");
-            card.style.setProperty("overflow", "hidden", "important");
-            const overlay = document.createElement("div");
-            overlay.className = "rdg-search-mask";
-            overlay.style.position = "absolute";
-            overlay.style.inset = "0";
-          overlay.style.background = "linear-gradient(180deg, rgba(15,23,42,0) 0%, rgba(15,23,42,0.35) 55%, rgba(15,23,42,0.6) 100%)";
-            overlay.style.pointerEvents = "auto";
-            overlay.style.borderRadius = "inherit";
-            overlay.style.opacity = "0.9";
-          overlay.style.transition = "opacity 0.15s ease";
-          overlay.style.zIndex = "3";
-          const label = document.createElement("div");
-          label.textContent = "Join Preview";
-          label.style.position = "absolute";
-          label.style.right = "12px";
-          label.style.bottom = "12px";
-          label.style.padding = "4px 8px";
-          label.style.borderRadius = "999px";
-          label.style.background = "rgba(15, 23, 42, 0.75)";
-          label.style.color = "#f8fafc";
-          label.style.fontSize = "12px";
-          label.style.letterSpacing = "0.04em";
-          label.style.textTransform = "uppercase";
-          overlay.appendChild(label);
-          wrapper.addEventListener("mouseenter", () => {
-            overlay.style.opacity = "1";
-          });
-          wrapper.addEventListener("mouseleave", () => {
-            overlay.style.opacity = "0.85";
-          });
-          const handleClick = (event) => {
-            if (event) {
-              event.preventDefault();
-              event.stopPropagation();
-              event.stopImmediatePropagation?.();
-            }
-            const bvid = getBvid(card);
-            if (!bvid) return;
-            console.log("rdg-bvid:" + bvid);
-          };
-            overlay.addEventListener("click", handleClick, true);
-            wrapper.addEventListener("click", handleClick, true);
-            wrapper.addEventListener(
-            "pointerdown",
-            (event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              event.stopImmediatePropagation?.();
-            },
-            true
-            );
-            wrapper.appendChild(card);
-            wrapper.appendChild(overlay);
-            list.appendChild(wrapper);
-          };
-          const appendCards = (nodes) => {
-            nodes.forEach((card) => {
-              const bvid = getBvid(card);
-              if (bvid && seen.has(bvid)) return;
-              if (bvid) seen.add(bvid);
-              const clone = card.cloneNode(true);
-              makeCard(clone);
-            });
-          };
-          const state = { loading: false, page: 1, done: false };
-          const getCurrentPage = () => {
-            try {
-              const url = new URL(window.location.href);
-            const page = Number(url.searchParams.get("page"));
-            return Number.isFinite(page) && page > 0 ? page : 1;
-            } catch {
-              return 1;
-            }
-          };
-          state.page = getCurrentPage();
-          const buildPageUrl = (page) => {
-            const url = new URL(window.location.href);
-            url.searchParams.set("page", String(page));
-            return url.toString();
-          };
-          const loadPage = async (page) => {
-            const url = buildPageUrl(page);
-            try {
-              const res = await fetch(url, { credentials: "include" });
-              if (!res.ok) return [];
-              const html = await res.text();
-              const doc = new DOMParser().parseFromString(html, "text/html");
-              return parseCardsFromDocument(doc);
-            } catch {
-              return [];
-            }
-          };
-          const loadNextPage = async () => {
-            if (state.loading || state.done) return;
-            state.loading = true;
-            const nextPage = state.page + 1;
-            let nextCards = await loadPage(nextPage);
-            if (!nextCards.length) {
-              state.done = true;
-              state.loading = false;
-              return;
-            }
-            appendCards(nextCards);
-            state.page = nextPage;
-            state.loading = false;
-            setTimeout(() => {
-              if (list.scrollHeight <= list.clientHeight && !state.done) {
-                loadNextPage();
+              card.style.setProperty("opacity", "1", "important");
+              card.style.setProperty("display", "block", "important");
+              const wrapper = document.createElement("div");
+              wrapper.className = "rdg-search-item";
+              wrapper.style.position = "relative";
+              wrapper.style.width = "100%";
+              wrapper.style.maxWidth = "100%";
+              wrapper.style.minWidth = "0";
+              wrapper.style.margin = "0";
+              wrapper.style.display = "block";
+              wrapper.style.flex = "0 0 auto";
+              wrapper.style.cursor = "pointer";
+              wrapper.style.overflow = "hidden";
+              wrapper.style.borderRadius = "14px";
+              wrapper.style.zoom = "0.9";
+              wrapper.style.transformOrigin = "top left";
+              card.style.setProperty("width", "100%", "important");
+              card.style.setProperty("max-width", "100%", "important");
+              card.style.setProperty("min-width", "0", "important");
+              card.style.setProperty("margin", "0", "important");
+              card.style.setProperty("box-sizing", "border-box", "important");
+              card.style.setProperty("overflow", "hidden", "important");
+              const overlay = document.createElement("div");
+              overlay.className = "rdg-search-mask";
+              overlay.style.position = "absolute";
+              overlay.style.inset = "0";
+              overlay.style.background = "transparent";
+              overlay.style.pointerEvents = "auto";
+              overlay.style.borderRadius = "inherit";
+              overlay.style.zIndex = "3";
+              const handleClick = (event) => {
+                if (event) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.stopImmediatePropagation?.();
+                }
+                const bvid = getBvid(card);
+                if (!bvid) return;
+                console.log("rdg-bvid:" + bvid);
+              };
+              overlay.addEventListener("click", handleClick, true);
+              wrapper.addEventListener("click", handleClick, true);
+              wrapper.addEventListener(
+                "pointerdown",
+                (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.stopImmediatePropagation?.();
+                },
+                true
+              );
+              wrapper.appendChild(card);
+              wrapper.appendChild(overlay);
+              list.appendChild(wrapper);
+            };
+            const appendCards = (nodes, page, source) => {
+              const pageCards = Array.from(nodes || []);
+              if (!pageCards.length) return;
+              maybeLogFirstTag(page, source || "page", pageCards);
+              const beforeCount = list.children.length;
+              pageCards.forEach((card) => {
+                const bvid = getBvid(card);
+                if (bvid && seen.has(bvid)) return;
+                if (bvid) seen.add(bvid);
+                const clone = card.cloneNode(true);
+                makeCard(clone);
+              });
+              if (sentinel && sentinel.parentNode === list) {
+                list.appendChild(sentinel);
               }
-            }, 0);
-          };
-          const shouldLoadNext = () => {
-            const remainingPx = list.scrollHeight - (list.scrollTop + list.clientHeight);
-            const firstItem = list.firstElementChild;
-            const itemHeight = firstItem ? firstItem.getBoundingClientRect().height + 12 : 180;
-            const remainingCount = itemHeight ? remainingPx / itemHeight : 0;
-            return remainingCount <= thresholdCount;
-          };
-          list.addEventListener("scroll", () => {
-            if (shouldLoadNext()) loadNextPage();
-          });
-          const bootstrap = async () => {
-            const listRoot = document.querySelector(selector);
-            const initialDomCards = listRoot ? Array.from(listRoot.children || []) : [];
-            if (initialDomCards.length) {
-              appendCards(initialDomCards);
+              if (loader && loader.parentNode === list) {
+                list.appendChild(loader);
+              }
+              const afterCount = list.children.length;
+              if (afterCount !== beforeCount) {
+                emit("list:total=" + afterCount);
+              }
+            };
+            const syncLoadingIndicator = () => {
+              if (!loader) return;
+              const shouldShow = state.loading || state.pending;
+              loader.classList.toggle("is-hidden", !shouldShow);
+            };
+            const getCurrentPage = () => {
+              try {
+                const url = new URL(window.location.href);
+                const page = Number(url.searchParams.get("page"));
+                return Number.isFinite(page) && page > 0 ? page : 1;
+              } catch {
+                return 1;
+              }
+            };
+            state.page = getCurrentPage();
+            const buildPageUrl = (page) => {
+              const url = new URL(window.location.href);
+              url.searchParams.set("page", String(page));
+              url.searchParams.set("search_source", "5");
+              return url.toString();
+            };
+            const loadPageFromFetch = async (page, url) => {
+              try {
+                const res = await fetch(url, { credentials: "include" });
+                if (!res.ok) {
+                  emit("loadPage:fetch-status page=" + page + " " + res.status);
+                  return [];
+                }
+                const html = await res.text();
+                const doc = new DOMParser().parseFromString(html, "text/html");
+                const cards = parseCardsFromDocument(doc);
+                if (!cards.length || page >= 2) {
+                  emit("loadPage:fetch page=" + page + " cards=" + cards.length);
+                }
+                return cards;
+              } catch (err) {
+                emit("loadPage:fetch-error page=" + page);
+                return [];
+              }
+            };
+            const getLoaderFrame = () => {
+              let frame = document.getElementById("rdg-search-loader");
+              if (!frame) {
+                frame = document.createElement("iframe");
+                frame.id = "rdg-search-loader";
+                frame.setAttribute("aria-hidden", "true");
+                frame.style.position = "fixed";
+                frame.style.left = "0";
+                frame.style.top = "0";
+                frame.style.width = "360px";
+                frame.style.height = "640px";
+                frame.style.border = "0";
+                frame.style.opacity = "0.01";
+                frame.style.pointerEvents = "none";
+                frame.style.display = "block";
+                frame.style.background = "transparent";
+                body.appendChild(frame);
+              } else {
+                frame.style.display = "block";
+                frame.style.opacity = "0.01";
+              }
+              return frame;
+            };
+            const loadPageViaFrame = (page, url) =>
+              new Promise((resolve) => {
+                let settled = false;
+                let attempts = 0;
+                const maxAttempts = 60;
+                let pollTimer = null;
+                let loggedMeta = false;
+                let observer = null;
+                const frame = getLoaderFrame();
+                const logFrameMeta = (doc) => {
+                  if (loggedMeta) return;
+                  loggedMeta = true;
+                  const title = doc?.title || "";
+                  const ready = doc?.readyState || "";
+                  emit(
+                    "loadPage:frame-meta page=" +
+                      page +
+                      " ready=" +
+                      ready +
+                      " title=" +
+                      title
+                  );
+                };
+                const getEmptyReason = (doc) => {
+                  if (!doc) return "";
+                  const title = doc.title || "";
+                  if (title.includes("验证码") || title.includes("验证")) {
+                    return "verify";
+                  }
+                  if (title.includes("访问") || title.includes("受限")) {
+                    return "access";
+                  }
+                  if (
+                    doc.querySelector(
+                      ".no-result, .search-no-result, .search-empty, .error-container, .search-error"
+                    )
+                  ) {
+                    return "empty";
+                  }
+                  const text = doc.body?.innerText || "";
+                  if (text.includes("没有找到") || text.includes("无相关")) {
+                    return "empty";
+                  }
+                  return "";
+                };
+                const cleanup = (cards) => {
+                  if (settled) return;
+                  settled = true;
+                  frame.removeEventListener("load", handleLoad);
+                  clearTimeout(timeout);
+                  if (pollTimer) clearInterval(pollTimer);
+                  if (observer) observer.disconnect();
+                  emit("loadPage:frame page=" + page + " cards=" + cards.length);
+                  resolve(cards);
+                };
+                const handleLoad = () => {
+                  const attachObserver = (doc) => {
+                    if (!doc?.body || observer) return;
+                    observer = new MutationObserver(() => {
+                      const cards = selectCards(doc);
+                      if (cards.length) {
+                        cleanup(cards);
+                      }
+                    });
+                    observer.observe(doc.body, { childList: true, subtree: true });
+                  };
+                  pollTimer = setInterval(() => {
+                    attempts += 1;
+                    try {
+                      const doc = frame.contentDocument;
+                      const cards = doc ? selectCards(doc) : [];
+                      attachObserver(doc);
+                      if (cards.length) {
+                        cleanup(cards);
+                        return;
+                      }
+                      const reason = getEmptyReason(doc);
+                      if (reason) {
+                        logFrameMeta(doc);
+                        emit(
+                          "loadPage:frame-empty page=" +
+                            page +
+                            " reason=" +
+                            reason
+                        );
+                        cleanup([]);
+                        return;
+                      }
+                      if (attempts >= maxAttempts) {
+                        logFrameMeta(doc);
+                        cleanup([]);
+                      }
+                    } catch (err) {
+                      emit("loadPage:frame-error page=" + page);
+                      cleanup([]);
+                    }
+                  }, 200);
+                };
+                const timeout = setTimeout(() => {
+                  emit("loadPage:frame-timeout page=" + page);
+                  cleanup([]);
+                }, state.frameTimeoutMs);
+                frame.addEventListener("load", handleLoad);
+                frame.src = url;
+              });
+            const loadPage = async (page) => {
+              const url = buildPageUrl(page);
+              emit("loadPage:start page=" + page);
+              if (page === 2) emit("loadPage:url page=2 " + url);
+              let cards = await loadPageFromFetch(page, url);
+              if (!cards.length) {
+                emit("loadPage:fallback frame page=" + page);
+                cards = await loadPageViaFrame(page, url);
+              }
+              emit("loadPage:done page=" + page + " cards=" + cards.length);
+              return cards;
+            };
+            const queueNextPage = () => {
+              if (state.done) return;
+              if (state.loading) {
+                state.pending = true;
+                return;
+              }
+              const now = Date.now();
+              const waitMs = Math.max(
+                0,
+                state.lastLoadAt + state.loadDelayMs - now
+              );
+              state.loading = true;
+              state.pending = false;
+              syncLoadingIndicator();
+              const nextPage = state.page + 1;
+              emit("loadNextPage:start page=" + nextPage);
+              setTimeout(async () => {
+              const nextCards = await loadPage(nextPage);
+              state.lastLoadAt = Date.now();
+              if (!nextCards.length) {
+                if (state.skipOnEmpty) {
+                  state.emptyStreak += 1;
+                  state.page = nextPage;
+                  state.loading = false;
+                  syncLoadingIndicator();
+                  emit(
+                    "loadNextPage:skip page=" +
+                      nextPage +
+                      " streak=" +
+                      state.emptyStreak
+                  );
+                  if (state.emptyStreak >= state.maxEmptyStreak) {
+                    state.done = true;
+                    emit(
+                      "loadNextPage:empty-streak-stop streak=" +
+                        state.emptyStreak
+                    );
+                    return;
+                  }
+                  if (
+                    state.pending ||
+                    shouldLoadNext() ||
+                    list.scrollHeight <= list.clientHeight
+                  ) {
+                    queueNextPage();
+                  }
+                  return;
+                }
+                const retries = state.retryMap[nextPage] || 0;
+                if (retries < state.maxRetries) {
+                  state.retryMap[nextPage] = retries + 1;
+                  state.loadDelayMs = Math.min(
+                    state.loadDelayMs + 200,
+                    900
+                  );
+                  state.loading = false;
+                  syncLoadingIndicator();
+                  emit(
+                    "loadNextPage:retry page=" +
+                      nextPage +
+                      " attempt=" +
+                      state.retryMap[nextPage]
+                  );
+                  setTimeout(() => {
+                    queueNextPage();
+                  }, state.retryDelayMs);
+                  return;
+                }
+                state.done = true;
+                state.loading = false;
+                syncLoadingIndicator();
+                emit(
+                  "loadNextPage:empty page=" +
+                    nextPage +
+                    " retries=" +
+                    retries
+                );
+                return;
+              }
+              state.emptyStreak = 0;
+              delete state.retryMap[nextPage];
+              state.loadDelayMs = 200;
+              appendCards(nextCards, nextPage, "page");
+              state.page = nextPage;
+              state.loading = false;
+              syncLoadingIndicator();
+              emit(
+                "loadNextPage:done page=" +
+                  nextPage +
+                  " cards=" +
+                  nextCards.length
+              );
+                if (state.done) return;
+                if (
+                  state.pending ||
+                  shouldLoadNext() ||
+                  list.scrollHeight <= list.clientHeight
+                ) {
+                  queueNextPage();
+                }
+              }, waitMs);
+            };
+            const shouldLoadNext = () => {
+              const remainingPx =
+                list.scrollHeight - (list.scrollTop + list.clientHeight);
+              const thresholdPx = Math.max(list.clientHeight * 5, 1600);
+              return remainingPx <= thresholdPx;
+            };
+            let scrollRaf = null;
+            list.addEventListener("scroll", () => {
+              if (scrollRaf) return;
+              scrollRaf = requestAnimationFrame(() => {
+                scrollRaf = null;
+                if (shouldLoadNext()) queueNextPage();
+              });
+            });
+            if ("IntersectionObserver" in window && sentinel) {
+              state.observer = new IntersectionObserver(
+                (entries) => {
+                  if (entries.some((entry) => entry.isIntersecting)) {
+                    queueNextPage();
+                  }
+                },
+                { root: list, rootMargin: "2200px 0px", threshold: 0.01 }
+              );
+              state.observer.observe(sentinel);
             }
-            const initialCards = await loadPage(state.page);
-            if (initialCards.length) {
-              appendCards(initialCards);
-            }
-            if (list.scrollHeight <= list.clientHeight) {
-              loadNextPage();
-            }
-          };
-          bootstrap();
+            const bootstrap = async () => {
+              emit("bootstrap:start page=" + state.page);
+              const initialDomCards = selectCards(document);
+              emit("bootstrap:domCards=" + initialDomCards.length);
+              if (initialDomCards.length) {
+                appendCards(initialDomCards, state.page, "dom");
+              }
+              const initialCards = await loadPage(state.page);
+              emit("bootstrap:pageCards=" + initialCards.length);
+              if (initialCards.length) {
+                appendCards(initialCards, state.page, "page");
+              }
+              if (list.scrollHeight <= list.clientHeight) {
+                queueNextPage();
+              }
+            };
+            bootstrap();
+          } catch (err) {
+            const message = err && err.message ? err.message : String(err);
+            console.log("rdg-debug:script-error " + message);
+          }
         })();
       `;
     const applySearchPatch = () => {
@@ -1590,6 +2109,7 @@ export default function App() {
     };
     const handleDomReady = () => {
       setIsSearchLoading(false);
+      pushSearchDebug("webview:dom-ready");
       applySearchPatch();
     };
     const handleStartLoading = () => {
@@ -1613,6 +2133,10 @@ export default function App() {
     };
     const handleConsoleMessage = (event) => {
       const text = event.message || "";
+      if (text.startsWith("rdg-debug:")) {
+        pushSearchDebug(text.replace("rdg-debug:", "").trim());
+        return;
+      }
       if (!text.startsWith("rdg-bvid:")) return;
       const bvid = text.replace("rdg-bvid:", "").trim();
       if (!bvid) return;
@@ -1632,7 +2156,7 @@ export default function App() {
       view.removeEventListener("new-window", handleNewWindow);
       view.removeEventListener("console-message", handleConsoleMessage);
     };
-  }, [searchUrl, searchResultsLimit, handleQueuePreview]);
+  }, [searchUrl, searchResultsLimit, handleQueuePreview, pushSearchDebug]);
 
 
   const seekTo = (clientX) => {
@@ -1801,12 +2325,20 @@ export default function App() {
           <span>Selected: {selection.length}</span>
         </div>
       </header>
+      <div className="debug-panel">
+        <div className="debug-title">Search Debug</div>
+        <div className="debug-body">
+          {searchDebugLines.length ? (
+            searchDebugLines.map((line, index) => (
+              <div key={`debug-${index}`}>{line}</div>
+            ))
+          ) : (
+            <div className="debug-empty">No logs yet.</div>
+          )}
+        </div>
+      </div>
       <main className="workspace">
         <section className="panel panel-sources">
-          <div className="panel-title-row">
-            <h2>Bilibili Search</h2>
-            <span className="panel-count">Top {searchResultsLimit}</span>
-          </div>
           <form className="search-form" onSubmit={handleSearchSubmit}>
             <input
               className="search-input"
@@ -1828,12 +2360,6 @@ export default function App() {
               useragent={bilibiliUserAgent}
               partition="persist:bili"
             />
-            {isSearchLoading ? (
-              <div className="search-loading">
-                <div className="preview-loading-spinner" />
-                <div className="search-loading-text">Loading search...</div>
-              </div>
-            ) : null}
           </div>
         </section>
 
@@ -1848,6 +2374,11 @@ export default function App() {
           <div className="preview-head">
             <div className="preview-title">
               <h2>{activeCard?.title || "Preview"}</h2>
+              <div className="preview-range">
+                {activeCard
+                  ? `${formatTime(rangeStart)} - ${formatTime(rangeEnd)}`
+                  : "--:-- - --:--"}
+              </div>
             </div>
             <div className="preview-toolbar">
               <div className={authClass}>{authLabel}</div>
@@ -1889,89 +2420,125 @@ export default function App() {
               ) : null}
             </div>
           ) : (
-            <div className="placeholder">Select a source to preview.</div>
+            <div className="placeholder">左侧搜索栏点击加入预览</div>
           )}
         </section>
 
         <section className="panel panel-editor">
           <div className="editor-section">
-            <div className="panel-title-row">
-              <h2>Card Builder</h2>
-              <button
-                className="ghost"
-                onClick={handleUseActiveSource}
-                disabled={!activeCard?.bvid}
-              >
-                Use Active Source
-              </button>
-            </div>
-            <div className="range-readout">
-              <div>
-                <div className="range-label">Range</div>
-                <div className="range-value">
-                  {formatTime(rangeStart)} - {formatTime(rangeEnd)}
+            <div className="builder-flow">
+              <div className="builder-stage">
+                <div className="builder-stage-title">
+                  <span className="builder-step">01</span>
+                  <span>同步预览信息</span>
                 </div>
-              </div>
-              <div className="range-hint">Drag handles in the player to set.</div>
-            </div>
-            <div className="form">
-              <div className="field">
-                <label>Title</label>
-                <input
-                  value={form.title}
-                  onChange={(event) => updateForm("title", event.target.value)}
-                  placeholder="Song title"
-                />
-              </div>
-              <div className="field">
-                <label>Artist</label>
-                <input
-                  value={form.artist}
-                  onChange={(event) => updateForm("artist", event.target.value)}
-                  placeholder="Artist name"
-                />
-              </div>
-              <div className="field">
-                <label>Bilibili BV id or URL</label>
-                <input
-                  value={form.source}
-                  onChange={(event) => updateForm("source", event.target.value)}
-                  placeholder="BVxxxx... or https://www.bilibili.com/video/BV..."
-                />
-              </div>
-              <details className="advanced">
-                <summary>Advanced options</summary>
-                <div className="row">
-                  <div className="field">
-                    <label>Tags</label>
-                    <input
-                      value={form.tags}
-                      onChange={(event) => updateForm("tags", event.target.value)}
-                      placeholder="genre:pop, dance:random"
-                    />
+                <div className="builder-grid">
+                  <div className="builder-card">
+                    <div className="builder-label">Preview Range</div>
+                    <div className="builder-range">
+                      {formatTime(rangeStart)} - {formatTime(rangeEnd)}
+                    </div>
+                    <div className="builder-hint">
+                      Drag handles in the preview to sync.
+                    </div>
                   </div>
-                  <div className="field">
-                    <label>BPM</label>
-                    <input
-                      value={form.bpm}
-                      onChange={(event) => updateForm("bpm", event.target.value)}
-                      placeholder="120"
-                    />
+
+                  <div className="builder-card">
+                    <div className="builder-label">Active Source</div>
+                    <div className="builder-source">
+                      {activeCard ? (
+                        <div className="builder-source-row">
+                          <div className="builder-source-title">
+                            {activeCard.title || "Untitled"}
+                          </div>
+                          <div className="builder-source-meta">
+                            {activeCard.bvid || "Unknown BV"}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="builder-empty">
+                          Select a result to sync.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </details>
+              </div>
+
+              <div className="builder-stage">
+                <div className="builder-stage-title">
+                  <span className="builder-step">02</span>
+                  <span>设置标签</span>
+                </div>
+                <div className="builder-grid builder-grid--tags">
+                  <div className="builder-card">
+                    <div className="builder-label">Search Tags</div>
+                    <div className="tag-input-row">
+                      <input
+                        value={tagInput}
+                        onChange={(event) => setTagInput(event.target.value)}
+                        onKeyDown={handleTagKeyDown}
+                        placeholder="Add search tags, press Enter"
+                      />
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={handleAddTag}
+                      >
+                        Add
+                      </button>
+                    </div>
+                    <div className="tag-chip-list">
+                      {tagList.length ? (
+                        tagList.map((tag) => (
+                          <span key={tag} className="tag-chip">
+                            <span className="tag-chip-text">#{tag}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveTag(tag)}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))
+                      ) : (
+                        <div className="tag-empty">No tags yet.</div>
+                      )}
+                    </div>
+                    <div className="tag-hint">
+                      Search tags appear in the community feed.
+                    </div>
+                  </div>
+
+                  <div className="builder-card">
+                    <div className="builder-label">Clip Tags</div>
+                    <div className="clip-tag-list">
+                      {clipTagOptions.map((tag) => {
+                        const isSelected = clipTags.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            className={
+                              "clip-tag" + (isSelected ? " is-selected" : "")
+                            }
+                            onClick={() => toggleClipTag(tag)}
+                          >
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="tag-hint">
+                      Clip tags are a placeholder set for special edit handling.
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            {error ? <div className="error">{error}</div> : null}
             <div className="builder-actions">
               <button className="primary" onClick={handleAddCard}>
-                Save to Library
-              </button>
-              <button
-                className="ghost"
-                onClick={handleSelectActive}
-                disabled={!activeCardInLibrary}
-              >
-                Add Active to Selection
+                生成标签
               </button>
             </div>
           </div>
@@ -2047,20 +2614,3 @@ export default function App() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
