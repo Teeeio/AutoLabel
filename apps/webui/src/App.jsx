@@ -135,6 +135,7 @@ export default function App() {
   const [isResolving, setIsResolving] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [previewEpoch, setPreviewEpoch] = useState(0);
   const [isDashMode, setIsDashMode] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [dragHandle, setDragHandle] = useState(null);
@@ -172,6 +173,7 @@ export default function App() {
   const rangeRef = useRef({ start: rangeStart, end: rangeEnd });
   const rangePollRef = useRef({ busy: false });
   const lastRangeUpdateRef = useRef(0);
+  const previewSwitchRef = useRef(0);
   const volumeRef = useRef(volume);
   const muteRef = useRef(isMuted);
   const rateRef = useRef(playbackRate);
@@ -622,6 +624,7 @@ export default function App() {
   }, [isScrubbing, dragHandle, rangeStart, rangeEnd, requestThumbnail]);
 
   useEffect(() => {
+    const switchToken = ++previewSwitchRef.current;
     setPreviewUrl("");
     setPreviewError("");
     setDuration(0);
@@ -632,10 +635,16 @@ export default function App() {
     setIsPlaying(false);
     setIsBuffering(false);
     setIsDashMode(false);
+    setIsLoadingPreview(false);
+    setIsResolving(false);
     resetDash();
-    if (!activeCard?.bvid) return;
+    if (!activeCard?.bvid) {
+      return;
+    }
     const nextStart = Number.isFinite(activeCard.start) ? activeCard.start : 0;
-    const durationCap = Number.isFinite(activeCard.sourceDuration) ? activeCard.sourceDuration : 0;
+    const durationCap = Number.isFinite(activeCard.sourceDuration)
+      ? activeCard.sourceDuration
+      : 0;
     const fallbackEnd = durationCap ? Math.min(30, durationCap) : 30;
     const nextEnd = Number.isFinite(activeCard.end) ? activeCard.end : fallbackEnd;
     setRangeStart(nextStart);
@@ -645,9 +654,19 @@ export default function App() {
     const embedUrl =
       activeCard.resolvedUrl ||
       buildEmbedUrl({ bvid: activeCard.bvid, aid: activeCard.aid, cid: activeCard.cid });
-    setPreviewUrl(embedUrl);
-    setIsResolving(false);
-  }, [activeId, activeCard?.bvid, previewQuality, resetDash, activeCardInLibrary]);
+    const timer = setTimeout(() => {
+      if (previewSwitchRef.current !== switchToken) return;
+      setPreviewUrl(embedUrl);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [
+    activeId,
+    activeCard?.bvid,
+    previewQuality,
+    resetDash,
+    activeCardInLibrary,
+    previewEpoch
+  ]);
 
   useEffect(() => {
     if (!Number.isFinite(sourceDuration) || sourceDuration <= 0) return;
@@ -1040,6 +1059,7 @@ export default function App() {
       segmentEnd: item.segmentEnd,
       sourceDuration: resolvedDuration
     };
+    setPreviewEpoch((prev) => prev + 1);
     setPreviewSource(previewCard);
     setActiveId(previewCard.id);
   };
@@ -1058,6 +1078,7 @@ export default function App() {
   };
 
   const handlePreviewCard = (card) => {
+    setPreviewEpoch((prev) => prev + 1);
     setPreviewSource(null);
     setActiveId(card.id);
   };
@@ -1161,18 +1182,23 @@ export default function App() {
     }
   };
 
-  const clipTagOptions = [
-    "占位-快切",
-    "占位-慢放",
-    "占位-卡点",
-    "占位-变速",
-    "占位-转场"
+  const clipTagGroups = [
+    {
+      label: "团体",
+      single: true,
+      options: ["μs", "Aqours", "Nijigasaki", "Liella", "Hasunosora"]
+    }
   ];
 
-  const toggleClipTag = (tag) => {
-    setClipTags((prev) =>
-      prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]
-    );
+  const toggleClipTag = (group, tag) => {
+    setClipTags((prev) => {
+      if (group?.single) {
+        return prev[0] === tag ? [] : [tag];
+      }
+      return prev.includes(tag)
+        ? prev.filter((item) => item !== tag)
+        : [...prev, tag];
+    });
   };
 
   const handleGenerate = async (mode) => {
@@ -1365,6 +1391,14 @@ export default function App() {
         const end = Number(payload.end);
         if (Number.isFinite(start) && Number.isFinite(end)) {
           updateRangeState(start, end);
+        }
+        return;
+      }
+      if (event.channel === "player:zoom") {
+        const payload = event.args?.[0] || {};
+        const scale = Number(payload.scale);
+        if (Number.isFinite(scale)) {
+          pushSearchDebug(`zoom:scale=${scale.toFixed(2)}`);
         }
         return;
       }
@@ -2394,6 +2428,7 @@ export default function App() {
             <div className="preview-body">
               {previewUrl ? (
                 <webview
+                  key={`${activeId || "preview"}-${previewEpoch}`}
                   ref={webviewRef}
                   src={previewUrl}
                   className={"player-webview embed-player " + (isLoadingPreview ? "is-loading" : "")}
@@ -2510,10 +2545,16 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="builder-card">
-                    <div className="builder-label">Clip Tags</div>
+              <div className="builder-card">
+                <div className="builder-label">Clip Tags</div>
+                {clipTagGroups.map((group) => (
+                  <div key={group.label} className="clip-tag-group">
+                    <div className="clip-tag-title">
+                      {group.label}
+                      {group.single ? " (单选)" : ""}
+                    </div>
                     <div className="clip-tag-list">
-                      {clipTagOptions.map((tag) => {
+                      {group.options.map((tag) => {
                         const isSelected = clipTags.includes(tag);
                         return (
                           <button
@@ -2522,16 +2563,15 @@ export default function App() {
                             className={
                               "clip-tag" + (isSelected ? " is-selected" : "")
                             }
-                            onClick={() => toggleClipTag(tag)}
+                            onClick={() => toggleClipTag(group, tag)}
                           >
                             {tag}
                           </button>
                         );
                       })}
                     </div>
-                    <div className="tag-hint">
-                      Clip tags are a placeholder set for special edit handling.
-                    </div>
+                  </div>
+                ))}
                   </div>
                 </div>
               </div>
@@ -2543,72 +2583,6 @@ export default function App() {
             </div>
           </div>
 
-          <div className="editor-section">
-            <div className="panel-title-row">
-              <h3>Card Library</h3>
-              <span className="panel-count">{cards.length}</span>
-            </div>
-            <div className="list list-compact">
-              {cards.map((card) => (
-                <div key={card.id} className="list-item">
-                  <div className="list-row">
-                    <div>
-                      <strong>{card.title}</strong> - {card.artist}
-                    </div>
-                    <div className="segment">
-                      {formatTime(card.start)} - {formatTime(card.end)}
-                    </div>
-                  </div>
-                  <div className="list-actions">
-                    <button onClick={() => handlePreviewCard(card)}>Preview</button>
-                    <button onClick={() => handleSelect(card)}>Add</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="editor-section">
-            <div className="panel-title-row">
-              <h3>Selection</h3>
-              <span className="panel-count">{selection.length}</span>
-            </div>
-            <div className="list list-compact">
-              {selection.length === 0 ? (
-                <div className="list-item">No cards selected.</div>
-              ) : (
-                selection.map((item) => (
-                  <div key={item.id} className="list-item">
-                    <div className="list-row">
-                      <div>
-                        <strong>{item.title}</strong> - {item.artist}
-                      </div>
-                      <div className="segment">
-                        {formatTime(item.start)} - {formatTime(item.end)}
-                      </div>
-                    </div>
-                    <div className="list-actions">
-                      <button onClick={() => handleRemove(item.id)}>Remove</button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="generation">
-              <div className="status">Status: {status}</div>
-              <div className="list list-compact">
-                {progress.length === 0 ? (
-                  <div className="list-item">No progress yet.</div>
-                ) : (
-                  progress.map((item, index) => (
-                    <div key={item.step + "-" + index} className="list-item">
-                      {item.current}/{item.total} - {item.label}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
         </section>
       </main>
     </div>
