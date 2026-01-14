@@ -155,23 +155,29 @@ function initClipRange() {
     style.id = "__clip_style";
     style.textContent = `
       .__clip_handle {
-        width: 18px;
-        height: 28px;
-        border-radius: 9px;
+        width: 14px;
+        height: 22px;
+        border-radius: 7px;
         background: linear-gradient(180deg, #e9f7ff 0%, #bfe9ff 100%);
         border: 2px solid #29b6ff;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3),
           inset 0 1px 0 rgba(255, 255, 255, 0.6);
-        transform: translateX(-50%);
+        transform: translateX(-50%) scaleX(calc(var(--clip-scale, 1) * var(--clip-damp-width, 1)))
+          scaleY(var(--clip-damp-scale, 1));
         cursor: grab;
         transition: transform 120ms ease, box-shadow 120ms ease;
       }
       .__clip_handle:hover {
-        transform: translateX(-50%) scale(1.08);
+        transform: translateX(-50%) scaleX(calc(var(--clip-scale, 1) * var(--clip-damp-width, 1)))
+          scaleY(var(--clip-damp-scale, 1)) scale(1.08);
         box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
       }
       .__clip_handle.__clip_dragging {
         cursor: grabbing;
+      }
+      .__clip_tip {
+        transform: translateX(-50%) scaleX(var(--clip-scale, 1));
+        transform-origin: center;
       }
     `;
     document.head.appendChild(style);
@@ -179,11 +185,73 @@ function initClipRange() {
 
   const cs = getComputedStyle(progressWrap);
   if (cs.position === "static") progressWrap.style.position = "relative";
+  progressWrap.style.transformOrigin = "left center";
+  progressWrap.style.willChange = "transform";
 
   const OLD = $(".__clip_root", progressWrap);
   if (OLD) OLD.remove();
 
   const dur = () => (Number.isFinite(videoEl.duration) ? videoEl.duration : 0);
+  let zoomScale = 1;
+  let zoomOffset = 0;
+  const zoomTarget = 0.4;
+  const zoomCurve = 0.5;
+  const zoomEase = 0.18;
+  const zoomMax = 6;
+  let zoomAnchorScreenX = null;
+
+  const getBaseWidth = () => {
+    const width = progressWrap.offsetWidth;
+    if (Number.isFinite(width) && width > 0) return width;
+    const rect = progressWrap.getBoundingClientRect();
+    return rect.width || 0;
+  };
+
+  const applyZoom = () => {
+    const r = getRange();
+    if (!r) return;
+    const span = Math.max(0.05, r.e - r.s);
+    if (!Number.isFinite(r.d) || r.d <= 0) return;
+    const ratio = span / r.d;
+    if (!Number.isFinite(ratio) || ratio <= 0) return;
+    const baseWidth = getBaseWidth();
+    if (!baseWidth) return;
+    const rawScale = zoomTarget / ratio;
+    const curved = Math.pow(rawScale, zoomCurve);
+    const normalized = clamp((curved - 1) / (zoomMax - 1), 0, 1);
+    const eased = normalized * normalized * (3 - 2 * normalized);
+    const targetScale = 1 + (zoomMax - 1) * eased;
+    zoomScale = zoomScale + (targetScale - zoomScale) * zoomEase;
+    const totalWidth = baseWidth * zoomScale;
+    const anchorTime =
+      dragging === "start"
+        ? r.e
+        : dragging === "end"
+          ? r.s
+          : (r.s + r.e) / 2;
+    const anchorRatio = anchorTime / r.d;
+    const anchorX = anchorRatio * baseWidth;
+    let targetOffset;
+    if (dragging && Number.isFinite(zoomAnchorScreenX)) {
+      targetOffset = zoomAnchorScreenX - anchorX * zoomScale;
+    } else {
+      targetOffset = baseWidth / 2 - anchorX * zoomScale;
+    }
+    const minOffset = baseWidth - totalWidth;
+    targetOffset = clamp(targetOffset, minOffset, 0);
+    zoomOffset = dragging
+      ? targetOffset
+      : zoomOffset + (targetOffset - zoomOffset) * zoomEase;
+    if (zoomScale === 1) {
+      progressWrap.style.transform = "";
+    } else {
+      progressWrap.style.transform = `translateX(${zoomOffset}px) scaleX(${zoomScale})`;
+    }
+    const inverse = zoomScale ? 1 / zoomScale : 1;
+    hStart?.style?.setProperty?.("--clip-scale", inverse);
+    hEnd?.style?.setProperty?.("--clip-scale", inverse);
+    tooltip?.style?.setProperty?.("--clip-scale", inverse);
+  };
 
   function getRange() {
     const d = dur();
@@ -215,16 +283,20 @@ function initClipRange() {
   function timeToX(t) {
     const r = getRange();
     if (!r) return 0;
-    const rect = progressWrap.getBoundingClientRect();
-    return (t / r.d) * rect.width;
+    const baseWidth = getBaseWidth();
+    if (!baseWidth) return 0;
+    return (t / r.d) * baseWidth;
   }
 
   function xToTime(clientX) {
     const r = getRange();
     if (!r) return 0;
     const rect = progressWrap.getBoundingClientRect();
-    const x = clamp(clientX - rect.left, 0, rect.width);
-    return (x / rect.width) * r.d;
+    const baseWidth = getBaseWidth();
+    if (!baseWidth) return 0;
+    const xScaled = clamp(clientX - rect.left, 0, rect.width);
+    const xBase = zoomScale > 0 ? xScaled / zoomScale : xScaled;
+    return (xBase / baseWidth) * r.d;
   }
 
   function pokeBpxPreview(clientX, clientY) {
@@ -303,7 +375,7 @@ function initClipRange() {
   Object.assign(tooltip.style, {
     position: "absolute",
     bottom: "26px",
-    transform: "translateX(-50%)",
+    transform: "translateX(-50%) scaleX(var(--clip-scale, 1))",
     pointerEvents: "none",
     display: "none",
     background: "rgba(0,0,0,0.78)",
@@ -347,9 +419,11 @@ function initClipRange() {
   function render() {
     const r = getRange();
     if (!r) return;
-    const rect = progressWrap.getBoundingClientRect();
-    const xS = (r.s / r.d) * rect.width;
-    const xE = (r.e / r.d) * rect.width;
+    const baseWidth = getBaseWidth();
+    if (!baseWidth) return;
+    applyZoom();
+    const xS = (r.s / r.d) * baseWidth;
+    const xE = (r.e / r.d) * baseWidth;
     hStart.style.left = `${xS}px`;
     hEnd.style.left = `${xE}px`;
     rangeBar.style.left = `${xS}px`;
@@ -359,17 +433,52 @@ function initClipRange() {
   let dragging = null;
   let dragPid = null;
   let dragTarget = null;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragTargetX = 0;
+  let dragSmoothX = 0;
+  let dragDamp = 1;
+  let dragRaf = null;
   let suppressClamp = false;
   let dragStartRange = null;
   let wasPlayingOnDrag = false;
 
+  const applyDragAtX = (clientX) => {
+    const r = getRange();
+    if (!r) return;
+    const t = xToTime(clientX);
+    if (dragging === "start") {
+      setRange(t, r.e);
+    } else {
+      setRange(r.s, t);
+    }
+    showTipAt(clientX, t);
+  };
+
+  const tickDrag = () => {
+    if (!dragging) return;
+    const delta = dragTargetX - dragSmoothX;
+    if (Math.abs(delta) < 0.15) {
+      dragSmoothX = dragTargetX;
+    } else {
+      dragSmoothX += delta * dragDamp;
+    }
+    applyDragAtX(dragSmoothX);
+    dragRaf = requestAnimationFrame(tickDrag);
+  };
+
   function showTipAt(clientX, t) {
     const rect = progressWrap.getBoundingClientRect();
-    const x = clamp(clientX - rect.left, 0, rect.width);
-    tooltip.style.left = `${x}px`;
+    const baseWidth = getBaseWidth();
+    if (!baseWidth) return;
+    const r = getRange();
+    if (!r) return;
+    const xBase = clamp((t / r.d) * baseWidth, 0, baseWidth);
+    tooltip.style.left = `${xBase}px`;
     tooltip.style.display = "block";
     tipTime.textContent = fmt(t);
-    pokeBpxPreview(clientX, rect.top + rect.height / 2);
+    const previewX = rect.left + xBase * (zoomScale || 1);
+    pokeBpxPreview(previewX, rect.top + rect.height / 2);
     const prev = readBpxPreviewImage();
     if (prev?.type === "src") {
       tipImg.src = prev.value;
@@ -389,39 +498,68 @@ function initClipRange() {
     dragging = kind;
     dragPid = e.pointerId;
     dragTarget = e.currentTarget;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragTargetX = e.clientX;
+    dragSmoothX = e.clientX;
+    dragDamp = 1;
+    dragTarget?.style?.setProperty?.("--clip-damp-scale", "1");
+    dragTarget?.style?.setProperty?.("--clip-damp-width", "1");
     dragTarget?.classList?.add("__clip_dragging");
     document.body.style.cursor = "grabbing";
     const range = getRange();
     dragStartRange = range ? { s: range.s, e: range.e } : null;
     wasPlayingOnDrag = !videoEl.paused;
     suppressClamp = true;
+    const r = getRange();
+    if (r) {
+      const baseWidth = getBaseWidth();
+      if (baseWidth) {
+        const anchorTime =
+          kind === "start" ? r.e : kind === "end" ? r.s : (r.s + r.e) / 2;
+        const anchorX = (anchorTime / r.d) * baseWidth;
+        zoomAnchorScreenX = zoomOffset + anchorX * zoomScale;
+      }
+    }
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation?.();
     try {
       e.target.setPointerCapture(e.pointerId);
     } catch {}
-    const t = xToTime(e.clientX);
-    showTipAt(e.clientX, t);
+    applyDragAtX(e.clientX);
+    if (!dragRaf) {
+      dragRaf = requestAnimationFrame(tickDrag);
+    }
   }
 
   function onPointerMove(e) {
     if (!dragging) return;
     if (dragPid != null && e.pointerId !== dragPid) return;
-    const r = getRange();
-    if (!r) return;
-    const t = xToTime(e.clientX);
-    if (dragging === "start") {
-      setRange(t, r.e);
-    } else {
-      setRange(r.s, t);
+    dragTargetX = e.clientX;
+    const maxLift = 200;
+    const lift = clamp(dragStartY - e.clientY, 0, maxLift);
+    const ratio = lift / maxLift;
+    const eased = 1 - ratio;
+    dragDamp = (0.02 + 0.98 * eased * eased) / 3;
+    const dampNorm = clamp(dragDamp * 3, 0, 1);
+    const compress = 0.7 + 0.3 * dampNorm;
+    const widen = Math.min(1.25, 1 / compress);
+    dragTarget?.style?.setProperty?.("--clip-damp-scale", compress.toFixed(3));
+    dragTarget?.style?.setProperty?.("--clip-damp-width", widen.toFixed(3));
+    if (!dragRaf) {
+      dragRaf = requestAnimationFrame(tickDrag);
     }
-    showTipAt(e.clientX, t);
   }
 
   function onPointerUp(e) {
     if (!dragging) return;
     if (dragPid != null && e.pointerId !== dragPid) return;
+    applyDragAtX(Number.isFinite(dragTargetX) ? dragTargetX : e.clientX);
+    if (dragRaf) {
+      cancelAnimationFrame(dragRaf);
+      dragRaf = null;
+    }
     dragging = null;
     dragPid = null;
     if (dragTarget && dragTarget.releasePointerCapture) {
@@ -430,9 +568,17 @@ function initClipRange() {
       } catch {}
     }
     dragTarget?.classList?.remove("__clip_dragging");
+    dragTarget?.style?.setProperty?.("--clip-damp-scale", "1");
+    dragTarget?.style?.setProperty?.("--clip-damp-width", "1");
     document.body.style.cursor = "";
     dragTarget = null;
+    dragStartX = 0;
+    dragStartY = 0;
+    dragTargetX = 0;
+    dragSmoothX = 0;
+    dragDamp = 1;
     suppressClamp = false;
+    zoomAnchorScreenX = null;
     hideTip();
     const r = getRange();
     if (r && dragStartRange && dragStartRange.s !== r.s) {
