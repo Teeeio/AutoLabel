@@ -212,6 +212,26 @@ export default function App() {
   const [thumbs, setThumbs] = useState({ start: "", end: "" });
   const prefetchRef = useRef({ inflight: false, lastKey: "", lastAt: 0 });
   const searchWebviewRef = useRef(null);
+  useEffect(() => {
+    const root = document.documentElement;
+    const topbar = document.querySelector(".topbar");
+    if (!topbar || !root) return;
+    const update = () => {
+      const height = topbar.getBoundingClientRect().height;
+      if (height) root.style.setProperty("--topbar-height", `${height}px`);
+    };
+    update();
+    let observer;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(update);
+      observer.observe(topbar);
+    }
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      observer?.disconnect();
+    };
+  }, []);
   const useEmbedPlayer = true;
   const useEmbedHijack = true;
   const sendPlayerCommand = useCallback((type, payload = {}) => {
@@ -1394,6 +1414,29 @@ export default function App() {
         }
         return;
       }
+      if (event.channel === "player:tags") {
+        const payload = event.args?.[0] || {};
+        const tags = Array.isArray(payload.tags) ? payload.tags : [];
+        const normalized = Array.from(
+          new Set(tags.map((tag) => String(tag || "").trim()).filter(Boolean))
+        );
+        if (!normalized.length) return;
+        setTagList((prev) => {
+          if (
+            prev.length === normalized.length &&
+            prev.every((value, index) => value === normalized[index])
+          ) {
+            return prev;
+          }
+          return normalized;
+        });
+        setTagInput("");
+        const nextTags = normalized.join(", ");
+        setForm((prev) =>
+          prev.tags === nextTags ? prev : { ...prev, tags: nextTags }
+        );
+        return;
+      }
       if (event.channel === "player:zoom") {
         const payload = event.args?.[0] || {};
         const scale = Number(payload.scale);
@@ -2350,27 +2393,24 @@ export default function App() {
     setIsHovering(true);
   };
 
+  const normalizedAuth = authStatus?.toLowerCase?.() || "";
+  const isLoggedIn = normalizedAuth.includes("logged in");
+  const isLoggingIn = normalizedAuth.includes("logging");
+  const authClass = isLoggedIn ? "auth-pill is-ready" : "auth-pill is-missing";
+  const authLabel = isLoggedIn ? "已登录" : isLoggingIn ? "登录中" : "未登录";
+
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">Random Dance Generator</div>
-        <div className="topbar-meta">
-          <span>Cards: {cards.length}</span>
-          <span>Selected: {selection.length}</span>
+        <div className="topbar-actions">
+          <div className={authClass}>{authLabel}</div>
+          <div className="topbar-buttons">
+            <button onClick={handleLogin}>Bilibili Login</button>
+            <button onClick={handleReload}>Reload UI</button>
+          </div>
         </div>
       </header>
-      <div className="debug-panel">
-        <div className="debug-title">Search Debug</div>
-        <div className="debug-body">
-          {searchDebugLines.length ? (
-            searchDebugLines.map((line, index) => (
-              <div key={`debug-${index}`}>{line}</div>
-            ))
-          ) : (
-            <div className="debug-empty">No logs yet.</div>
-          )}
-        </div>
-      </div>
       <main className="workspace">
         <section className="panel panel-sources">
           <form className="search-form" onSubmit={handleSearchSubmit}>
@@ -2398,13 +2438,6 @@ export default function App() {
         </section>
 
         <section className="panel panel-preview">
-          {(() => {
-            const normalized = authStatus?.toLowerCase?.() || "";
-            const isLoggedIn = normalized.includes("logged in");
-            const isLoggingIn = normalized.includes("logging");
-            const authClass = isLoggedIn ? "auth-pill is-ready" : "auth-pill is-missing";
-            const authLabel = isLoggedIn ? "已登录" : isLoggingIn ? "登录中" : "未登录";
-            return (
           <div className="preview-head">
             <div className="preview-title">
               <h2>{activeCard?.title || "Preview"}</h2>
@@ -2414,16 +2447,7 @@ export default function App() {
                   : "--:-- - --:--"}
               </div>
             </div>
-            <div className="preview-toolbar">
-              <div className={authClass}>{authLabel}</div>
-              <div className="preview-actions">
-                <button onClick={handleLogin}>Bilibili Login</button>
-                <button onClick={handleReload}>Reload UI</button>
-              </div>
-            </div>
           </div>
-            );
-          })()}
           {activeCard ? (
             <div className="preview-body">
               {previewUrl ? (

@@ -77,6 +77,43 @@ function applyOnlyVideoArea() {
   return true;
 }
 
+function suppressEndingPrompts() {
+  if (document.querySelector("#__bpx_prompt_style")) return;
+  const style = document.createElement("style");
+  style.id = "__bpx_prompt_style";
+  style.textContent = `
+    .bpx-player-ending,
+    .bpx-player-ending-panel,
+    .bpx-player-ending-layer,
+    .bpx-player-ending-dialog,
+    .bpx-player-ending-popup,
+    .bpx-player-ending-wrapper,
+    .bpx-player-ending-close,
+    .bpx-player-ending-recommend,
+    .bpx-player-ending-up-next,
+    .bpx-player-ending-bubble,
+    .bpx-player-ending-tips,
+    .bpx-player-ending-screen,
+    .bpx-player-ending-overlay,
+    .bpx-player-ending-mask,
+    .bpx-player-ending-tip,
+    .bpx-player-ending-card,
+    .bpx-player-ending-ad,
+    .bpx-player-toast-wrap,
+    .bpx-player-state-ending,
+    .bpx-player-endscreen,
+    .bpx-player-up-next,
+    .bpx-player-ending-main,
+    .bpx-player-ending-secondary {
+      display: none !important;
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 function mountPlayer() {
   if (!ENABLE_ISOLATION || isolationApplied) return;
   isolationApplied = applyOnlyVideoArea();
@@ -111,6 +148,38 @@ function emitRangeUpdate() {
   const r = clipApi.getRange();
   if (!r) return;
   ipcRenderer.sendToHost("player:range", { start: r.s, end: r.e });
+}
+
+let lastTagSignature = "";
+let lastTagUrl = "";
+let tagProbeTimer = null;
+const tagContainerSelector =
+  "#mirror-vdcon > div.left-container.scroll-sticky > div.video-tag-container > div";
+
+function collectVideoTags() {
+  const currentUrl = location.href;
+  if (currentUrl !== lastTagUrl) {
+    lastTagUrl = currentUrl;
+    lastTagSignature = "";
+  }
+  const container = document.querySelector(tagContainerSelector);
+  if (!container) return;
+  const tags = Array.from(container.querySelectorAll(".tag-link"))
+    .map((tag) => tag.innerText.trim())
+    .filter(Boolean);
+  if (!tags.length) return;
+  const signature = tags.join("|");
+  if (signature === lastTagSignature) return;
+  lastTagSignature = signature;
+  ipcRenderer.sendToHost("player:tags", { tags });
+}
+
+function scheduleTagProbe(delay = 120) {
+  if (tagProbeTimer) return;
+  tagProbeTimer = setTimeout(() => {
+    tagProbeTimer = null;
+    collectVideoTags();
+  }, delay);
 }
 
 function hookVideo(el) {
@@ -155,21 +224,23 @@ function initClipRange() {
     style.id = "__clip_style";
     style.textContent = `
       .__clip_handle {
-        width: 14px;
-        height: 22px;
-        border-radius: 7px;
+        --clip-base-w: 14px;
+        --clip-base-h: 22px;
+        width: calc(var(--clip-base-w) * var(--clip-damp-width, 1));
+        height: calc(var(--clip-base-h) * var(--clip-damp-scale, 1));
+        border-radius: calc(
+          7px * var(--clip-damp-scale, 1)
+        );
         background: linear-gradient(180deg, #e9f7ff 0%, #bfe9ff 100%);
         border: 2px solid #29b6ff;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3),
           inset 0 1px 0 rgba(255, 255, 255, 0.6);
-        transform: translateX(-50%) scaleX(calc(var(--clip-scale, 1) * var(--clip-damp-width, 1)))
-          scaleY(var(--clip-damp-scale, 1));
+        transform: translateX(-50%) scaleX(var(--clip-scale, 1));
         cursor: grab;
-        transition: transform 120ms ease, box-shadow 120ms ease;
+        transition: width 120ms ease, height 120ms ease, box-shadow 120ms ease;
       }
       .__clip_handle:hover {
-        transform: translateX(-50%) scaleX(calc(var(--clip-scale, 1) * var(--clip-damp-width, 1)))
-          scaleY(var(--clip-damp-scale, 1)) scale(1.08);
+        transform: translateX(-50%) scaleX(var(--clip-scale, 1));
         box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
       }
       .__clip_handle.__clip_dragging {
@@ -198,7 +269,15 @@ function initClipRange() {
   const zoomCurve = 0.5;
   const zoomEase = 0.18;
   const zoomMax = 6;
+  const zoomAssistMax = 4;
+  const zoomAssistCurve = 0.35;
+  const zoomAssistRatio = 0.02;
+  const zoomAssistSeconds = 5;
+  const minSpanMaxSeconds = 20;
+  const zoomOverdragMax = 2.2;
+  const zoomOverdragRange = 0.25;
   let zoomAnchorScreenX = null;
+  let zoomOverdrag = 0;
 
   const getBaseWidth = () => {
     const width = progressWrap.offsetWidth;
@@ -220,7 +299,19 @@ function initClipRange() {
     const curved = Math.pow(rawScale, zoomCurve);
     const normalized = clamp((curved - 1) / (zoomMax - 1), 0, 1);
     const eased = normalized * normalized * (3 - 2 * normalized);
-    const targetScale = 1 + (zoomMax - 1) * eased;
+    const baseScale = 1 + (zoomMax - 1) * eased;
+    const assistSpan = Math.min(
+      minSpanMaxSeconds,
+      Math.max(r.d * zoomAssistRatio, zoomAssistSeconds)
+    );
+    const assistRatioRaw = clamp((assistSpan - span) / assistSpan, 0, 1);
+    const assistRatio = Math.pow(assistRatioRaw, zoomAssistCurve);
+    const assistScale = 1 + (zoomAssistMax - 1) * assistRatio;
+    const overdragRatio = dragging
+      ? clamp(zoomOverdrag / (baseWidth * zoomOverdragRange), 0, 1)
+      : 0;
+    const overdragScale = 1 + (zoomOverdragMax - 1) * overdragRatio;
+    const targetScale = baseScale * assistScale * overdragScale;
     zoomScale = zoomScale + (targetScale - zoomScale) * zoomEase;
     const totalWidth = baseWidth * zoomScale;
     const anchorTime =
@@ -260,7 +351,11 @@ function initClipRange() {
     let e = parseFloat(progressWrap.dataset.clipEnd);
     if (!Number.isFinite(s)) s = 0;
     if (!Number.isFinite(e)) e = d;
-    const MIN = 0.05;
+    const MIN = Math.min(
+      d,
+      minSpanMaxSeconds,
+      Math.max(0.05, d * zoomAssistRatio, zoomAssistSeconds)
+    );
     s = clamp(s, 0, d);
     e = clamp(e, s + MIN, d);
     progressWrap.dataset.clipStart = String(s);
@@ -271,7 +366,11 @@ function initClipRange() {
   function setRange(s, e) {
     const d = dur();
     if (!d) return;
-    const MIN = 0.05;
+    const MIN = Math.min(
+      d,
+      minSpanMaxSeconds,
+      Math.max(0.05, d * zoomAssistRatio, zoomAssistSeconds)
+    );
     s = clamp(s, 0, d);
     e = clamp(e, s + MIN, d);
     progressWrap.dataset.clipStart = String(s);
@@ -439,6 +538,9 @@ function initClipRange() {
   let dragSmoothX = 0;
   let dragDamp = 1;
   let dragRaf = null;
+  let clampActive = false;
+  let seeking = false;
+  let seekPid = null;
   let suppressClamp = false;
   let dragStartRange = null;
   let wasPlayingOnDrag = false;
@@ -446,10 +548,39 @@ function initClipRange() {
   const applyDragAtX = (clientX) => {
     const r = getRange();
     if (!r) return;
-    const t = xToTime(clientX);
+    const baseWidth = getBaseWidth();
+    if (!baseWidth) return;
+    const rect = progressWrap.getBoundingClientRect();
+    const xScaled = clamp(clientX - rect.left, 0, rect.width);
+    const xBase = zoomScale > 0 ? xScaled / zoomScale : xScaled;
+    const tRaw = (xBase / baseWidth) * r.d;
+    const minSpan = Math.min(
+      r.d,
+      minSpanMaxSeconds,
+      Math.max(0.05, r.d * zoomAssistRatio, zoomAssistSeconds)
+    );
+    let t = tRaw;
+    zoomOverdrag = 0;
+    clampActive = false;
     if (dragging === "start") {
+      const minTime = r.e - minSpan;
+      if (tRaw > minTime) {
+        t = minTime;
+        const minXBase = (minTime / r.d) * baseWidth;
+        const minXScreen = zoomOffset + minXBase * zoomScale;
+        zoomOverdrag = Math.max(0, clientX - minXScreen);
+        clampActive = true;
+      }
       setRange(t, r.e);
     } else {
+      const minTime = r.s + minSpan;
+      if (tRaw < minTime) {
+        t = minTime;
+        const minXBase = (minTime / r.d) * baseWidth;
+        const minXScreen = zoomOffset + minXBase * zoomScale;
+        zoomOverdrag = Math.max(0, minXScreen - clientX);
+        clampActive = true;
+      }
       setRange(r.s, t);
     }
     showTipAt(clientX, t);
@@ -543,8 +674,8 @@ function initClipRange() {
     const eased = 1 - ratio;
     dragDamp = (0.02 + 0.98 * eased * eased) / 3;
     const dampNorm = clamp(dragDamp * 3, 0, 1);
-    const compress = 0.7 + 0.3 * dampNorm;
-    const widen = Math.min(1.25, 1 / compress);
+    const compress = clampActive ? 1 : 0.7 + 0.3 * dampNorm;
+    const widen = clampActive ? 1 : Math.min(1.25, 1 / compress);
     dragTarget?.style?.setProperty?.("--clip-damp-scale", compress.toFixed(3));
     dragTarget?.style?.setProperty?.("--clip-damp-width", widen.toFixed(3));
     if (!dragRaf) {
@@ -579,6 +710,7 @@ function initClipRange() {
     dragDamp = 1;
     suppressClamp = false;
     zoomAnchorScreenX = null;
+    zoomOverdrag = 0;
     hideTip();
     const r = getRange();
     if (r && dragStartRange && dragStartRange.s !== r.s) {
@@ -614,10 +746,19 @@ function initClipRange() {
   hEnd.addEventListener("pointerup", onPointerUp, true);
   hStart.addEventListener("lostpointercapture", onPointerUp, true);
   hEnd.addEventListener("lostpointercapture", onPointerUp, true);
-  window.addEventListener("blur", onPointerUp, true);
+  window.addEventListener("blur", (e) => {
+    onPointerUp(e);
+    stopSeeking(e);
+  }, true);
   window.addEventListener("pointermove", onPointerMove, true);
-  window.addEventListener("pointerup", onPointerUp, true);
-  window.addEventListener("pointercancel", onPointerUp, true);
+  window.addEventListener("pointerup", (e) => {
+    onPointerUp(e);
+    stopSeeking(e);
+  }, true);
+  window.addEventListener("pointercancel", (e) => {
+    onPointerUp(e);
+    stopSeeking(e);
+  }, true);
 
   let internalLock = false;
 
@@ -628,6 +769,13 @@ function initClipRange() {
     if (!r) return;
     const t = videoEl.currentTime;
     const EPS = 0.03;
+    if (!videoEl.paused && t >= r.e - EPS) {
+      internalLock = true;
+      videoEl.currentTime = r.s;
+      if (!videoEl.paused) videoEl.play().catch(() => {});
+      requestAnimationFrame(() => (internalLock = false));
+      return;
+    }
     if (t < r.s - EPS) {
       internalLock = true;
       videoEl.currentTime = r.s;
@@ -650,6 +798,19 @@ function initClipRange() {
 
   videoEl.addEventListener("seeking", () => clampNow(), true);
   videoEl.addEventListener("seeked", () => clampNow(), true);
+  videoEl.addEventListener(
+    "ended",
+    () => {
+      if (suppressClamp || internalLock) return;
+      const r = getRange();
+      if (!r) return;
+      internalLock = true;
+      videoEl.currentTime = r.s;
+      videoEl.play().catch(() => {});
+      requestAnimationFrame(() => (internalLock = false));
+    },
+    true
+  );
 
   progressWrap.addEventListener(
     "pointerdown",
@@ -659,6 +820,24 @@ function initClipRange() {
       const r = getRange();
       if (!r) return;
       const targetT = xToTime(e.clientX);
+      if (Math.abs(zoomScale - 1) > 0.01) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
+        seeking = true;
+        seekPid = e.pointerId;
+        if (progressWrap.setPointerCapture) {
+          try {
+            progressWrap.setPointerCapture(e.pointerId);
+          } catch {}
+        }
+        const nextTime = targetT < r.s || targetT > r.e ? r.s : targetT;
+        internalLock = true;
+        videoEl.currentTime = clamp(nextTime, 0, r.d);
+        if (!videoEl.paused) videoEl.play().catch(() => {});
+        requestAnimationFrame(() => (internalLock = false));
+        return;
+      }
       if (targetT < r.s || targetT > r.e) {
         e.preventDefault();
         e.stopPropagation();
@@ -668,6 +847,40 @@ function initClipRange() {
         if (!videoEl.paused) videoEl.play().catch(() => {});
         requestAnimationFrame(() => (internalLock = false));
       }
+    },
+    true
+  );
+
+  const stopSeeking = (e) => {
+    if (!seeking) return;
+    if (seekPid != null && e?.pointerId != null && e.pointerId !== seekPid) {
+      return;
+    }
+    if (progressWrap.releasePointerCapture && seekPid != null) {
+      try {
+        progressWrap.releasePointerCapture(seekPid);
+      } catch {}
+    }
+    seeking = false;
+    seekPid = null;
+  };
+
+  progressWrap.addEventListener(
+    "pointermove",
+    (e) => {
+      if (!seeking) return;
+      if (seekPid != null && e.pointerId !== seekPid) return;
+      const r = getRange();
+      if (!r) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation?.();
+      const targetT = xToTime(e.clientX);
+      const nextTime = targetT < r.s || targetT > r.e ? r.s : targetT;
+      internalLock = true;
+      videoEl.currentTime = clamp(nextTime, 0, r.d);
+      if (!videoEl.paused) videoEl.play().catch(() => {});
+      requestAnimationFrame(() => (internalLock = false));
     },
     true
   );
@@ -751,13 +964,17 @@ function applyCommand(payload = {}) {
 
 window.addEventListener("DOMContentLoaded", () => {
   mountPlayer();
+  suppressEndingPrompts();
   ensureVideo();
   initClipRange();
+  scheduleTagProbe(0);
 
   const observer = new MutationObserver(() => {
     mountPlayer();
+    suppressEndingPrompts();
     if (!videoEl) ensureVideo();
     if (!clipApi) initClipRange();
+    scheduleTagProbe();
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 });
