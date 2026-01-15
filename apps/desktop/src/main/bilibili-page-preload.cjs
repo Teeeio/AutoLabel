@@ -218,6 +218,12 @@ function initClipRange() {
     $(".bpx-player-progress") ||
     $("#bilibili-player .bpx-player-progress-wrap");
   if (!progressWrap) return;
+  const baseCandidate = progressWrap.querySelector(".bpx-player-progress");
+  const candidateWidth = baseCandidate
+    ? baseCandidate.getBoundingClientRect().width
+    : 0;
+  const baseEl =
+    baseCandidate && candidateWidth > 0 ? baseCandidate : progressWrap;
 
   if (!document.querySelector("#__clip_style")) {
     const style = document.createElement("style");
@@ -235,108 +241,195 @@ function initClipRange() {
         border: 2px solid #29b6ff;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3),
           inset 0 1px 0 rgba(255, 255, 255, 0.6);
-        transform: translateX(-50%) scaleX(var(--clip-scale, 1));
+        transform: translateX(-50%) scaleX(var(--clip-scale, 1)) translateZ(0);
+        backface-visibility: hidden;
+        will-change: transform;
         cursor: grab;
         transition: width 120ms ease, height 120ms ease, box-shadow 120ms ease;
       }
       .__clip_handle:hover {
-        transform: translateX(-50%) scaleX(var(--clip-scale, 1));
+        transform: translateX(-50%) scaleX(var(--clip-scale, 1)) translateZ(0);
         box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
       }
       .__clip_handle.__clip_dragging {
         cursor: grabbing;
       }
       .__clip_tip {
-        transform: translateX(-50%) scaleX(var(--clip-scale, 1));
+        transform: translateX(-50%);
         transform-origin: center;
+      }
+      .__clip_zoom_band {
+        position: absolute;
+        top: -12px;
+        height: 6px;
+        left: 0;
+        width: 0;
+        border-radius: 999px;
+        background: linear-gradient(
+          90deg,
+          rgba(41, 182, 255, 0.18),
+          rgba(41, 182, 255, 0.08)
+        );
+        border: 1px dashed rgba(41, 182, 255, 0.5);
+        box-shadow: 0 0 0 1px rgba(41, 182, 255, 0.08);
+        opacity: 0;
+        transition: opacity 120ms ease;
+      }
+      .__clip_zoom_badge {
+        position: absolute;
+        top: -32px;
+        left: 50%;
+        transform: translateX(-50%);
+        transform-origin: center;
+        padding: 2px 6px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        color: #0d1b2a;
+        background: rgba(191, 233, 255, 0.95);
+        border: 1px solid rgba(41, 182, 255, 0.6);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.18);
+        opacity: 0;
+        transition: opacity 120ms ease;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      .__clip_root.__clip_zoomed .__clip_zoom_band,
+      .__clip_zoom_overlay.__clip_zoomed .__clip_zoom_badge,
+      .__clip_root.__clip_zoomed .__clip_zoom_band {
+        opacity: 1;
       }
     `;
     document.head.appendChild(style);
   }
 
   const cs = getComputedStyle(progressWrap);
-  if (cs.position === "static") progressWrap.style.position = "relative";
-  progressWrap.style.transformOrigin = "left center";
-  progressWrap.style.willChange = "transform";
+  if (cs.position === "static") progressWrap.style.position = "relative";       
+  const baseCs = getComputedStyle(baseEl);
+  if (baseCs.position === "static") baseEl.style.position = "relative";
+  progressWrap.style.setProperty("transform-origin", "left center", "important");
 
   const OLD = $(".__clip_root", progressWrap);
   if (OLD) OLD.remove();
 
   const dur = () => (Number.isFinite(videoEl.duration) ? videoEl.duration : 0);
   let zoomScale = 1;
-  let zoomOffset = 0;
-  const zoomTarget = 0.4;
-  const zoomCurve = 0.5;
   const zoomEase = 0.18;
-  const zoomMax = 6;
-  const zoomAssistMax = 4;
-  const zoomAssistCurve = 0.35;
-  const zoomAssistRatio = 0.02;
-  const zoomAssistSeconds = 5;
-  const minSpanMaxSeconds = 20;
-  const zoomOverdragMax = 2.2;
-  const zoomOverdragRange = 0.25;
-  let zoomAnchorScreenX = null;
-  let zoomOverdrag = 0;
+  const zoomAssistRatio = 0;
+  const zoomAssistSeconds = 1;
+  const minSpanMaxSeconds = 1;
+  const minSpanPx = 2;
+  const zoomTargetSpanPx = 40;
+  const zoomMaxScale = 18;
+  let zoomRaf = null;
+  let zoomPending = false;
+  let zoomTranslateX = 0;
+  let baselineLeft = null;
+  let baselineWidth = null;
+  let root = null;
 
+  const getBaseRect = () => baseEl.getBoundingClientRect();
   const getBaseWidth = () => {
-    const width = progressWrap.offsetWidth;
+    const width = baseEl.offsetWidth;
     if (Number.isFinite(width) && width > 0) return width;
-    const rect = progressWrap.getBoundingClientRect();
+    const rect = getBaseRect();
     return rect.width || 0;
   };
 
-  const applyZoom = () => {
-    const r = getRange();
-    if (!r) return;
-    const span = Math.max(0.05, r.e - r.s);
-    if (!Number.isFinite(r.d) || r.d <= 0) return;
-    const ratio = span / r.d;
-    if (!Number.isFinite(ratio) || ratio <= 0) return;
-    const baseWidth = getBaseWidth();
-    if (!baseWidth) return;
-    const rawScale = zoomTarget / ratio;
-    const curved = Math.pow(rawScale, zoomCurve);
-    const normalized = clamp((curved - 1) / (zoomMax - 1), 0, 1);
-    const eased = normalized * normalized * (3 - 2 * normalized);
-    const baseScale = 1 + (zoomMax - 1) * eased;
-    const assistSpan = Math.min(
+  const captureBaseline = () => {
+    const rect = getBaseRect();
+    if (!rect.width) return;
+    if (zoomScale !== 1) {
+      if (baselineLeft == null || baselineWidth == null) {
+        baselineLeft = rect.left - zoomTranslateX;
+        baselineWidth = rect.width / zoomScale;
+      }
+      return;
+    }
+    baselineLeft = rect.left;
+    baselineWidth = rect.width;
+  };
+
+  const getMinSpan = (d, baseWidth) => {
+    const baseMin = Math.min(
+      d,
       minSpanMaxSeconds,
-      Math.max(r.d * zoomAssistRatio, zoomAssistSeconds)
+      Math.max(0.05, d * zoomAssistRatio, zoomAssistSeconds)
     );
-    const assistRatioRaw = clamp((assistSpan - span) / assistSpan, 0, 1);
-    const assistRatio = Math.pow(assistRatioRaw, zoomAssistCurve);
-    const assistScale = 1 + (zoomAssistMax - 1) * assistRatio;
-    const overdragRatio = dragging
-      ? clamp(zoomOverdrag / (baseWidth * zoomOverdragRange), 0, 1)
-      : 0;
-    const overdragScale = 1 + (zoomOverdragMax - 1) * overdragRatio;
-    const targetScale = baseScale * assistScale * overdragScale;
-    zoomScale = zoomScale + (targetScale - zoomScale) * zoomEase;
-    const totalWidth = baseWidth * zoomScale;
-    const anchorTime =
-      dragging === "start"
-        ? r.e
-        : dragging === "end"
-          ? r.s
-          : (r.s + r.e) / 2;
+    const width = baseWidth || getBaseWidth();
+    if (!width || !Number.isFinite(zoomScale) || zoomScale <= 0) return baseMin;
+    const minPxTime = (minSpanPx / (width * Math.max(zoomScale, 1))) * d;
+    return Math.min(d, Math.max(baseMin, minPxTime));
+  };
+
+  const screenXToBaseX = (clientX, r) => {
+    const baseWidth = getBaseWidth();
+    if (!baseWidth) return 0;
+    captureBaseline();
+    if (!baselineWidth) return 0;
+    const rectLeft = baselineLeft + zoomTranslateX;
+    const scaledWidth =
+      baselineWidth * (zoomScale > 1.001 ? zoomScale : 1);
+    const xScaled = clamp(clientX - rectLeft, 0, scaledWidth);
+    if (zoomScale > 1.001) {
+      return clamp(xScaled / zoomScale, 0, baseWidth);
+    }
+    return (xScaled / baselineWidth) * baseWidth;
+  };
+
+  const baseXToScreenX = (xBase, r) => {
+    const baseWidth = getBaseWidth();
+    captureBaseline();
+    if (!baseWidth || !baselineWidth) return baselineLeft || 0;
+    if (zoomScale > 1.001) {
+      return baselineLeft + zoomTranslateX + xBase * zoomScale;
+    }
+    return baselineLeft + (xBase / baseWidth) * baselineWidth;
+  };
+
+  let zoomBadge = null;
+  let zoomOverlay = null;
+
+  const getAnchorTime = (r) => (r.s + r.e) / 2;
+
+  const setZoomScale = (scale, r, immediate = false) => {
+    const nextScale = immediate
+      ? scale
+      : zoomScale + (scale - zoomScale) * zoomEase;
+    const baseWidth = getBaseWidth();
+    const anchorTime = getAnchorTime(r);
     const anchorRatio = anchorTime / r.d;
     const anchorX = anchorRatio * baseWidth;
-    let targetOffset;
-    if (dragging && Number.isFinite(zoomAnchorScreenX)) {
-      targetOffset = zoomAnchorScreenX - anchorX * zoomScale;
-    } else {
-      targetOffset = baseWidth / 2 - anchorX * zoomScale;
-    }
-    const minOffset = baseWidth - totalWidth;
-    targetOffset = clamp(targetOffset, minOffset, 0);
-    zoomOffset = dragging
-      ? targetOffset
-      : zoomOffset + (targetOffset - zoomOffset) * zoomEase;
+    captureBaseline();
+    const left = baselineLeft ?? getBaseRect().left;
+    zoomScale = nextScale;
+    baseEl.style.setProperty("transform-origin", "left center", "important");
+    baseEl.style.willChange = "transform";
     if (zoomScale === 1) {
-      progressWrap.style.transform = "";
+      baseEl.style.removeProperty("transform");
+      zoomTranslateX = 0;
+      captureBaseline();
     } else {
-      progressWrap.style.transform = `translateX(${zoomOffset}px) scaleX(${zoomScale})`;
+      const anchorScreen =
+        (baselineLeft ?? left) +
+        (baselineWidth
+          ? (anchorX / baseWidth) * baselineWidth
+          : anchorX);
+      const translateX = anchorScreen - (baselineLeft ?? left) - anchorX * zoomScale;
+      zoomTranslateX = translateX;
+      baseEl.style.setProperty(
+        "transform",
+        `translateX(${zoomTranslateX}px) scaleX(${zoomScale})`,
+        "important"
+      );
+    }
+    root?.style?.removeProperty?.("transform");
+    const zoomActive = zoomScale > 1.02;
+    root.classList.toggle("__clip_zoomed", zoomActive);
+    zoomOverlay?.classList?.toggle("__clip_zoomed", zoomActive);
+    if (zoomActive && zoomBadge) {
+      zoomBadge.textContent = `Zoom x${zoomScale.toFixed(1)}`;
     }
     const inverse = zoomScale ? 1 / zoomScale : 1;
     hStart?.style?.setProperty?.("--clip-scale", inverse);
@@ -344,33 +437,59 @@ function initClipRange() {
     tooltip?.style?.setProperty?.("--clip-scale", inverse);
   };
 
-  function getRange() {
+  const applyZoom = () => {
+    const r = readRange();
+    if (!r) return;
+    const span = Math.max(0.05, r.e - r.s);
+    if (!Number.isFinite(r.d) || r.d <= 0) return;
+    const baseWidth = getBaseWidth();
+    if (!baseWidth) return;
+    if (dragging) {
+      zoomPending = true;
+      return;
+    }
+    const spanBasePx = Math.max(0.001, (span / r.d) * baseWidth);
+    const targetScale = Math.max(
+      1,
+      Math.min(zoomMaxScale, zoomTargetSpanPx / spanBasePx)
+    );
+    setZoomScale(targetScale, r, true);
+  };
+
+  function readRange() {
     const d = dur();
     if (!d) return null;
     let s = parseFloat(progressWrap.dataset.clipStart);
     let e = parseFloat(progressWrap.dataset.clipEnd);
     if (!Number.isFinite(s)) s = 0;
     if (!Number.isFinite(e)) e = d;
-    const MIN = Math.min(
-      d,
-      minSpanMaxSeconds,
-      Math.max(0.05, d * zoomAssistRatio, zoomAssistSeconds)
-    );
     s = clamp(s, 0, d);
-    e = clamp(e, s + MIN, d);
+    e = clamp(e, 0, d);
+    if (e < s) {
+      const tmp = s;
+      s = e;
+      e = tmp;
+    }
+    return { s, e, d };
+  }
+
+  function getRange() {
+    const r = readRange();
+    if (!r) return null;
+    const MIN = getMinSpan(r.d);
+    let s = r.s;
+    let e = r.e;
+    s = clamp(s, 0, r.d);
+    e = clamp(e, s + MIN, r.d);
     progressWrap.dataset.clipStart = String(s);
     progressWrap.dataset.clipEnd = String(e);
-    return { s, e, d };
+    return { s, e, d: r.d };
   }
 
   function setRange(s, e) {
     const d = dur();
     if (!d) return;
-    const MIN = Math.min(
-      d,
-      minSpanMaxSeconds,
-      Math.max(0.05, d * zoomAssistRatio, zoomAssistSeconds)
-    );
+    const MIN = getMinSpan(d);
     s = clamp(s, 0, d);
     e = clamp(e, s + MIN, d);
     progressWrap.dataset.clipStart = String(s);
@@ -390,11 +509,9 @@ function initClipRange() {
   function xToTime(clientX) {
     const r = getRange();
     if (!r) return 0;
-    const rect = progressWrap.getBoundingClientRect();
     const baseWidth = getBaseWidth();
     if (!baseWidth) return 0;
-    const xScaled = clamp(clientX - rect.left, 0, rect.width);
-    const xBase = zoomScale > 0 ? xScaled / zoomScale : xScaled;
+    const xBase = screenXToBaseX(clientX, r);
     return (xBase / baseWidth) * r.d;
   }
 
@@ -429,7 +546,7 @@ function initClipRange() {
     return null;
   }
 
-  const root = document.createElement("div");
+  root = document.createElement("div");
   root.className = "__clip_root";
   Object.assign(root.style, {
     position: "absolute",
@@ -469,12 +586,31 @@ function initClipRange() {
   const hStart = mkHandle("start");
   const hEnd = mkHandle("end");
 
+  const zoomBand = document.createElement("div");
+  zoomBand.className = "__clip_zoom_band";
+
+  zoomOverlay = document.createElement("div");
+  zoomOverlay.className = "__clip_zoom_overlay";
+  Object.assign(zoomOverlay.style, {
+    position: "absolute",
+    left: "0",
+    top: "0",
+    right: "0",
+    bottom: "0",
+    pointerEvents: "none",
+    zIndex: "1000002"
+  });
+
+  zoomBadge = document.createElement("div");
+  zoomBadge.className = "__clip_zoom_badge";
+  zoomBadge.textContent = "Zoom x1.0";
+
   const tooltip = document.createElement("div");
   tooltip.className = "__clip_tip";
   Object.assign(tooltip.style, {
     position: "absolute",
     bottom: "26px",
-    transform: "translateX(-50%) scaleX(var(--clip-scale, 1))",
+    transform: "scaleX(var(--clip-scale, 1)) translateX(-50%)",
     pointerEvents: "none",
     display: "none",
     background: "rgba(0,0,0,0.78)",
@@ -509,14 +645,17 @@ function initClipRange() {
   tooltip.appendChild(tipImg);
   tooltip.appendChild(tipTime);
 
+  root.appendChild(zoomBand);
   root.appendChild(rangeBar);
   root.appendChild(hStart);
   root.appendChild(hEnd);
   root.appendChild(tooltip);
-  progressWrap.appendChild(root);
+  baseEl.appendChild(root);
+  zoomOverlay.appendChild(zoomBadge);
+  progressWrap.appendChild(zoomOverlay);
 
   function render() {
-    const r = getRange();
+    const r = readRange();
     if (!r) return;
     const baseWidth = getBaseWidth();
     if (!baseWidth) return;
@@ -527,6 +666,17 @@ function initClipRange() {
     hEnd.style.left = `${xE}px`;
     rangeBar.style.left = `${xS}px`;
     rangeBar.style.width = `${Math.max(0, xE - xS)}px`;
+    zoomBand.style.left = `${xS}px`;
+    zoomBand.style.width = `${Math.max(0, xE - xS)}px`;
+    const center = (xS + xE) / 2;
+    if (zoomBadge) {
+      const badgeWidth = zoomBadge.offsetWidth || 0;
+      const half = badgeWidth ? badgeWidth / 2 : 16;
+      const minX = half;
+      const maxX = Math.max(minX, baseWidth - half);
+      const clamped = clamp(center, minX, maxX);
+      zoomBadge.style.left = `${clamped}px`;
+    }
   }
 
   let dragging = null;
@@ -539,6 +689,7 @@ function initClipRange() {
   let dragDamp = 1;
   let dragRaf = null;
   let clampActive = false;
+  let dragGrabOffset = 0;
   let seeking = false;
   let seekPid = null;
   let suppressClamp = false;
@@ -550,25 +701,18 @@ function initClipRange() {
     if (!r) return;
     const baseWidth = getBaseWidth();
     if (!baseWidth) return;
-    const rect = progressWrap.getBoundingClientRect();
-    const xScaled = clamp(clientX - rect.left, 0, rect.width);
-    const xBase = zoomScale > 0 ? xScaled / zoomScale : xScaled;
+    const adjustedX = Number.isFinite(dragGrabOffset)
+      ? clientX - dragGrabOffset
+      : clientX;
+    const xBase = screenXToBaseX(adjustedX, r);
     const tRaw = (xBase / baseWidth) * r.d;
-    const minSpan = Math.min(
-      r.d,
-      minSpanMaxSeconds,
-      Math.max(0.05, r.d * zoomAssistRatio, zoomAssistSeconds)
-    );
+    const minSpan = getMinSpan(r.d, baseWidth);
     let t = tRaw;
-    zoomOverdrag = 0;
     clampActive = false;
     if (dragging === "start") {
       const minTime = r.e - minSpan;
       if (tRaw > minTime) {
         t = minTime;
-        const minXBase = (minTime / r.d) * baseWidth;
-        const minXScreen = zoomOffset + minXBase * zoomScale;
-        zoomOverdrag = Math.max(0, clientX - minXScreen);
         clampActive = true;
       }
       setRange(t, r.e);
@@ -576,9 +720,6 @@ function initClipRange() {
       const minTime = r.s + minSpan;
       if (tRaw < minTime) {
         t = minTime;
-        const minXBase = (minTime / r.d) * baseWidth;
-        const minXScreen = zoomOffset + minXBase * zoomScale;
-        zoomOverdrag = Math.max(0, minXScreen - clientX);
         clampActive = true;
       }
       setRange(r.s, t);
@@ -599,7 +740,7 @@ function initClipRange() {
   };
 
   function showTipAt(clientX, t) {
-    const rect = progressWrap.getBoundingClientRect();
+    const rect = getBaseRect();
     const baseWidth = getBaseWidth();
     if (!baseWidth) return;
     const r = getRange();
@@ -608,7 +749,7 @@ function initClipRange() {
     tooltip.style.left = `${xBase}px`;
     tooltip.style.display = "block";
     tipTime.textContent = fmt(t);
-    const previewX = rect.left + xBase * (zoomScale || 1);
+    const previewX = baseXToScreenX(xBase, r);
     pokeBpxPreview(previewX, rect.top + rect.height / 2);
     const prev = readBpxPreviewImage();
     if (prev?.type === "src") {
@@ -638,20 +779,20 @@ function initClipRange() {
     dragTarget?.style?.setProperty?.("--clip-damp-width", "1");
     dragTarget?.classList?.add("__clip_dragging");
     document.body.style.cursor = "grabbing";
+    const targetRect = dragTarget?.getBoundingClientRect?.();
+    dragGrabOffset =
+      targetRect && Number.isFinite(targetRect.left)
+        ? e.clientX - (targetRect.left + targetRect.width / 2)
+        : 0;
     const range = getRange();
     dragStartRange = range ? { s: range.s, e: range.e } : null;
+    if (zoomRaf) {
+      cancelAnimationFrame(zoomRaf);
+      zoomRaf = null;
+    }
+    if (range) setZoomScale(zoomScale, range, true);
     wasPlayingOnDrag = !videoEl.paused;
     suppressClamp = true;
-    const r = getRange();
-    if (r) {
-      const baseWidth = getBaseWidth();
-      if (baseWidth) {
-        const anchorTime =
-          kind === "start" ? r.e : kind === "end" ? r.s : (r.s + r.e) / 2;
-        const anchorX = (anchorTime / r.d) * baseWidth;
-        zoomAnchorScreenX = zoomOffset + anchorX * zoomScale;
-      }
-    }
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation?.();
@@ -708,9 +849,8 @@ function initClipRange() {
     dragTargetX = 0;
     dragSmoothX = 0;
     dragDamp = 1;
+    dragGrabOffset = 0;
     suppressClamp = false;
-    zoomAnchorScreenX = null;
-    zoomOverdrag = 0;
     hideTip();
     const r = getRange();
     if (r && dragStartRange && dragStartRange.s !== r.s) {
@@ -720,6 +860,11 @@ function initClipRange() {
       clampNow();
     }
     dragStartRange = null;
+    if (zoomPending) {
+      zoomPending = false;
+      applyZoom();
+    }
+    render();
   }
 
   hStart.addEventListener("pointerdown", (e) => onPointerDown("start", e), true);
@@ -816,7 +961,7 @@ function initClipRange() {
     "pointerdown",
     (e) => {
       if (e.target?.closest?.(".__clip_handle")) return;
-      if (dragging) return;
+    if (dragging) return;
       const r = getRange();
       if (!r) return;
       const targetT = xToTime(e.clientX);
@@ -912,12 +1057,17 @@ function initClipRange() {
     if (!progressWrap.dataset.clipStart) progressWrap.dataset.clipStart = "0";
     if (!progressWrap.dataset.clipEnd) progressWrap.dataset.clipEnd = String(d);
     render();
+    captureBaseline();
     clampNow();
     emitRangeUpdate();
   }
 
   initRangeWhenReady();
-  new ResizeObserver(() => render()).observe(progressWrap);
+  new ResizeObserver(() => {
+    baselineLeft = null;
+    baselineWidth = null;
+    render();
+  }).observe(progressWrap);
 
   clipApi = { getRange, setRange, render };
 }
