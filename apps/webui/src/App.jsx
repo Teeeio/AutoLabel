@@ -200,12 +200,18 @@ export default function App() {
   const [parseInput, setParseInput] = useState("");
   const [parseQueue, setParseQueue] = useState([]);
   const [isBatchResolving, setIsBatchResolving] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("lovelive");
+  const searchSuggestion = "LoveLive";
+  const [searchQuery, setSearchQuery] = useState("");
   const [searchUrl, setSearchUrl] = useState(
-    "https://search.bilibili.com/all?keyword=lovelive"
+    () =>
+      `https://search.bilibili.com/all?keyword=${encodeURIComponent(
+        searchSuggestion
+      )}`
   );
   const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [searchDebugLines, setSearchDebugLines] = useState([]);
+  const [showSearchOverlay, setShowSearchOverlay] = useState(true);
+  const searchOverlayRef = useRef({ key: "", ready: false });
   const parseQueueRef = useRef([]);
   const [cachedRangesMap, setCachedRangesMap] = useState({});
   const [previewSource, setPreviewSource] = useState(null);
@@ -536,7 +542,7 @@ export default function App() {
       if (!prev.some((entry) => entry.bvid === bvid)) return prev;
       return prev.map((entry) =>
         entry.bvid === bvid
-          ? { ...entry, status: "error", error: err?.message || "Resolve failed" }
+          ? { ...entry, status: "error", error: err?.message || "解析失败" }
           : entry
       );
     });
@@ -906,10 +912,14 @@ export default function App() {
     (event) => {
       if (event?.preventDefault) event.preventDefault();
       const trimmed = searchQuery.trim();
-      if (!trimmed) return;
-      setSearchUrl(buildSearchUrl(trimmed));
+      const keyword = trimmed || searchSuggestion;
+      if (!keyword) return;
+      const nextUrl = buildSearchUrl(keyword);
+      searchOverlayRef.current = { key: nextUrl, ready: false };
+      setShowSearchOverlay(true);
+      setSearchUrl(nextUrl);
     },
-    [searchQuery, buildSearchUrl]
+    [searchQuery, searchSuggestion, buildSearchUrl]
   );
 
   const enqueueParseSources = () => {
@@ -927,7 +937,7 @@ export default function App() {
             source,
             bvid: "",
             status: "invalid",
-            error: "Invalid BV id"
+            error: "无效BV号"
           });
           return;
         }
@@ -953,7 +963,7 @@ export default function App() {
     try {
       const info = await window.preview?.info({ bvid: item.bvid });
       if (!info) {
-        throw new Error("Parse failed");
+        throw new Error("解析失败");
       }
       const resolvedDuration = Number.isFinite(info.duration) ? info.duration : item.duration;
       setParseQueue((prev) =>
@@ -977,7 +987,7 @@ export default function App() {
     } catch (err) {
       setParseQueue((prev) =>
         prev.map((entry) =>
-          entry.id === item.id ? { ...entry, status: "error", error: err?.message || "Parse failed" } : entry
+          entry.id === item.id ? { ...entry, status: "error", error: err?.message || "解析失败" } : entry
         )
       );
     }
@@ -1029,7 +1039,7 @@ export default function App() {
             bvid,
             status: item.url ? "ready" : "pending",
             url: item.url || "",
-            title: item.title || "",
+      title: item.title || existing?.title || "加载中...",
             duration: resolvedDuration,
             aid: item.aid || "",
             cid: item.cid || "",
@@ -1062,8 +1072,8 @@ export default function App() {
     });
     const previewCard = {
       id: `source-${bvid}`,
-      title: item.title || existing?.title || "Loading...",
-      artist: item.author || form.artist || "Unknown",
+      title: item.title || existing?.title || "加载中...",
+      artist: item.author || form.artist || "未知",
       start: 0,
       end: resolvedDuration ? Math.min(30, resolvedDuration) : 30,
       bvid,
@@ -1136,11 +1146,11 @@ export default function App() {
     const bvid = extractBvid(rawSource);
     const resolvedTitle = (form.title || activeCard?.title || "").trim();
     if (!resolvedTitle) {
-      alert("Title is required.");
+      alert("请先添加至少一个标签。");
       return;
     }
     if (!bvid) {
-      alert("Please provide a valid Bilibili BV id or URL.");
+      alert("请先添加至少一个标签。");
       return;
     }
 
@@ -1152,7 +1162,7 @@ export default function App() {
     const newCard = {
       id: bvid + "-" + Date.now(),
       title: resolvedTitle,
-      artist: activeCard?.artist || form.artist || "Unknown",
+      artist: activeCard?.artist || form.artist || "未知",
       start,
       end,
       bvid,
@@ -1223,7 +1233,7 @@ export default function App() {
 
   const handleGenerate = async (mode) => {
     if (selection.length === 0) {
-      alert("Please add at least one card to the selection.");
+      alert("请先添加至少一个标签。");
       return;
     }
     setStatus("running");
@@ -1231,7 +1241,7 @@ export default function App() {
     const payload = { mode, selection };
     const result = await window.generator?.run(payload);
     if (!result?.ok) {
-      alert(result?.message || "Generator is not available");
+      alert(result?.message || "生成器不可用");
       setStatus("idle");
       return;
     }
@@ -1242,7 +1252,7 @@ export default function App() {
   const handleLogin = async () => {
     if (!window.auth) {
       setAuthStatus("unavailable");
-      alert("Auth bridge not available. Please restart the app.");
+      alert("请先添加至少一个标签。");
       return;
     }
     setAuthStatus("logging in");
@@ -1255,7 +1265,7 @@ export default function App() {
       }
     } catch (err) {
       setAuthStatus("not logged in");
-      alert(err?.message || "Login failed.");
+      alert(err?.message || "登录失败。");
     }
   };
 
@@ -1303,7 +1313,7 @@ export default function App() {
       setPreviewUrl(activeCard.resolvedUrl || nextUrl);
       setIsBuffering(false);
     } catch (err) {
-      setPreviewError(err?.message || "Failed to load preview.");
+      setPreviewError(err?.message || "预览加载失败。");
     } finally {
       resolvingRef.current = false;
       setIsResolving(false);
@@ -1621,6 +1631,11 @@ export default function App() {
               if (!message) return;
               console.log("rdg-debug:" + message);
             };
+            const emitMaskReady = () => {
+              if (state.maskReady) return;
+              state.maskReady = true;
+              console.log("rdg-mask:ready");
+            };
             const body = document.body;
             const root = document.documentElement;
             root.style.overflow = "hidden";
@@ -1669,6 +1684,7 @@ export default function App() {
             list.style.visibility = "visible";
             list.style.opacity = "1";
             let sentinel = document.getElementById("rdg-search-sentinel");
+
             if (!sentinel) {
               sentinel = document.createElement("div");
               sentinel.id = "rdg-search-sentinel";
@@ -1683,7 +1699,7 @@ export default function App() {
               loader.id = "rdg-search-loading";
               loader.className = "rdg-search-loading is-hidden";
               loader.innerHTML =
-                '<span class="rdg-spinner"></span><span class="rdg-loading-text">Loading...</span>';
+                '<span class="rdg-spinner"></span><span class="rdg-loading-text">加载中...</span>';
               list.appendChild(loader);
             }
             const state = window.__rdgSearchState || {
@@ -1720,6 +1736,7 @@ export default function App() {
               state.skipOnEmpty = true;
               state.maxEmptyStreak = 3;
               state.frameTimeoutMs = 4500;
+              state.maskReady = false;
               if (state.observer) {
                 state.observer.disconnect();
                 state.observer = null;
@@ -1738,7 +1755,10 @@ export default function App() {
             if (!Number.isFinite(state.frameTimeoutMs)) {
               state.frameTimeoutMs = 4500;
             }
-            if (state.bootstrapped) return;
+            if (state.bootstrapped) {
+              emitMaskReady();
+              return;
+            }
             state.bootstrapped = true;
             const seen = new Set();
             const parseCardsFromDocument = (doc) => selectCards(doc);
@@ -1794,7 +1814,7 @@ export default function App() {
               card.style.setProperty("box-sizing", "border-box", "important");
               card.style.setProperty("overflow", "hidden", "important");
               const overlay = document.createElement("div");
-              overlay.className = "rdg-search-mask";
+              overlay.className = "rdg-search-card-mask";
               overlay.style.position = "absolute";
               overlay.style.inset = "0";
               overlay.style.background = "transparent";
@@ -1848,6 +1868,7 @@ export default function App() {
               if (afterCount !== beforeCount) {
                 emit("list:total=" + afterCount);
               }
+              emitMaskReady();
             };
             const syncLoadingIndicator = () => {
               if (!loader) return;
@@ -2168,6 +2189,7 @@ export default function App() {
               if (initialCards.length) {
                 appendCards(initialCards, state.page, "page");
               }
+              emitMaskReady();
               if (list.scrollHeight <= list.clientHeight) {
                 queueNextPage();
               }
@@ -2210,6 +2232,14 @@ export default function App() {
     };
     const handleConsoleMessage = (event) => {
       const text = event.message || "";
+      if (text.startsWith("rdg-mask:ready")) {
+        searchOverlayRef.current = {
+          ...searchOverlayRef.current,
+          ready: true
+        };
+        setShowSearchOverlay(false);
+        return;
+      }
       if (text.startsWith("rdg-debug:")) {
         pushSearchDebug(text.replace("rdg-debug:", "").trim());
         return;
@@ -2286,7 +2316,7 @@ export default function App() {
       role === "playhead"
         ? "playhead"
         : role === "selection"
-          ? "range"
+          ? "selection"
           : role === "start-handle"
             ? "start"
             : role === "end-handle"
@@ -2406,23 +2436,25 @@ export default function App() {
         <div className="topbar-actions">
           <div className={authClass}>{authLabel}</div>
           <div className="topbar-buttons">
-            <button onClick={handleLogin}>Bilibili Login</button>
-            <button onClick={handleReload}>Reload UI</button>
+            <button onClick={handleLogin}>B站登录</button>
+            <button onClick={handleReload}>刷新界面</button>
           </div>
         </div>
       </header>
       <main className="workspace">
         <section className="panel panel-sources">
           <form className="search-form" onSubmit={handleSearchSubmit}>
-            <input
-              className="search-input"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search on Bilibili"
-            />
-            <button type="submit">Search</button>
+            <div className="search-input-wrap">
+              <input
+                className="search-input"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={searchSuggestion}
+              />
+            </div>
+            <button type="submit">搜索</button>
           </form>
-          <div className="search-hint">Click a result to preview.</div>
+          <div className="search-hint">点击结果加入预览。</div>
           <div className="search-frame">
             <webview
               ref={searchWebviewRef}
@@ -2434,13 +2466,19 @@ export default function App() {
               useragent={bilibiliUserAgent}
               partition="persist:bili"
             />
+            {showSearchOverlay ? (
+              <div className="search-overlay">
+                <div className="search-overlay-spinner" />
+                <div className="search-overlay-text">加载中...</div>
+              </div>
+            ) : null}
           </div>
         </section>
 
         <section className="panel panel-preview">
           <div className="preview-head">
             <div className="preview-title">
-              <h2>{activeCard?.title || "Preview"}</h2>
+              <h2>{activeCard?.title || "预览"}</h2>
               <div className="preview-range">
                 {activeCard
                   ? `${formatTime(rangeStart)} - ${formatTime(rangeEnd)}`
@@ -2464,22 +2502,22 @@ export default function App() {
                   preload={window.env?.bilibiliPagePreload}
                 />
               ) : (
-                <div className="placeholder">Resolve preview to play.</div>
+                <div className="placeholder">解析后播放。</div>
               )}
               {isLoadingPreview || isResolving ? (
                 <div className="preview-loading">
                   <div className="preview-loading-spinner" />
-                  <div className="preview-loading-text">Loading preview...</div>
+                  <div className="preview-loading-text">预览加载中...</div>
                 </div>
               ) : null}
               {previewError && !isLoadingPreview && !isResolving ? (
                 <div className="preview-error">
-                  <button onClick={handleResolvePreview}>Retry Preview</button>
+                  <button onClick={handleResolvePreview}>重试预览</button>
                 </div>
               ) : null}
             </div>
           ) : (
-            <div className="placeholder">左侧搜索栏点击加入预览</div>
+            <div className="placeholder">左侧搜索栏点击加入预览。</div>
           )}
         </section>
 
@@ -2493,31 +2531,27 @@ export default function App() {
                 </div>
                 <div className="builder-grid">
                   <div className="builder-card">
-                    <div className="builder-label">Preview Range</div>
+                    <div className="builder-label">预览区间</div>
                     <div className="builder-range">
                       {formatTime(rangeStart)} - {formatTime(rangeEnd)}
                     </div>
-                    <div className="builder-hint">
-                      Drag handles in the preview to sync.
-                    </div>
+                    <div className="builder-hint">拖动预览区间滑块同步。</div>
                   </div>
 
                   <div className="builder-card">
-                    <div className="builder-label">Active Source</div>
+                    <div className="builder-label">标签来源</div>
                     <div className="builder-source">
                       {activeCard ? (
                         <div className="builder-source-row">
                           <div className="builder-source-title">
-                            {activeCard.title || "Untitled"}
+                            {activeCard.title || "未命名"}
                           </div>
                           <div className="builder-source-meta">
-                            {activeCard.bvid || "Unknown BV"}
+                            {activeCard.bvid || "未知BV"}
                           </div>
                         </div>
                       ) : (
-                        <div className="builder-empty">
-                          Select a result to sync.
-                        </div>
+                        <div className="builder-empty">选择结果以同步。</div>
                       )}
                     </div>
                   </div>
@@ -2531,21 +2565,19 @@ export default function App() {
                 </div>
                 <div className="builder-grid builder-grid--tags">
                   <div className="builder-card">
-                    <div className="builder-label">Search Tags</div>
+                    <div className="builder-label">搜索标签</div>
                     <div className="tag-input-row">
                       <input
                         value={tagInput}
                         onChange={(event) => setTagInput(event.target.value)}
                         onKeyDown={handleTagKeyDown}
-                        placeholder="Add search tags, press Enter"
+                        placeholder="添加搜索标签，回车确认"
                       />
                       <button
                         type="button"
                         className="ghost"
                         onClick={handleAddTag}
-                      >
-                        Add
-                      </button>
+                      >添加</button>
                     </div>
                     <div className="tag-chip-list">
                       {tagList.length ? (
@@ -2561,49 +2593,45 @@ export default function App() {
                           </span>
                         ))
                       ) : (
-                        <div className="tag-empty">No tags yet.</div>
+                        <div className="tag-empty">暂无标签。</div>
                       )}
                     </div>
-                    <div className="tag-hint">
-                      Search tags appear in the community feed.
-                    </div>
+                    <div className="tag-hint">搜索标签用于社区检索展示。</div>
                   </div>
 
-              <div className="builder-card">
-                <div className="builder-label">Clip Tags</div>
-                {clipTagGroups.map((group) => (
-                  <div key={group.label} className="clip-tag-group">
-                    <div className="clip-tag-title">
-                      {group.label}
-                      {group.single ? " (单选)" : ""}
-                    </div>
-                    <div className="clip-tag-list">
-                      {group.options.map((tag) => {
-                        const isSelected = clipTags.includes(tag);
-                        return (
-                          <button
-                            key={tag}
-                            type="button"
-                            className={
-                              "clip-tag" + (isSelected ? " is-selected" : "")
-                            }
-                            onClick={() => toggleClipTag(group, tag)}
-                          >
-                            {tag}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                  <div className="builder-card">
+                    <div className="builder-label">剪辑标签</div>
+                    {clipTagGroups.map((group) => (
+                      <div key={group.label} className="clip-tag-group">
+                        <div className="clip-tag-title">
+                          {group.label}
+                          {group.single ? "（单选）" : ""}
+                        </div>
+                        <div className="clip-tag-list">
+                          {group.options.map((tag) => {
+                            const isSelected = clipTags.includes(tag);
+                            return (
+                              <button
+                                key={tag}
+                                type="button"
+                                className={
+                                  "clip-tag" + (isSelected ? " is-selected" : "")
+                                }
+                                onClick={() => toggleClipTag(group, tag)}
+                              >
+                                {tag}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
             </div>
             <div className="builder-actions">
-              <button className="primary" onClick={handleAddCard}>
-                生成标签
-              </button>
+              <button className="primary" onClick={handleAddCard}>生成标签</button>
             </div>
           </div>
 

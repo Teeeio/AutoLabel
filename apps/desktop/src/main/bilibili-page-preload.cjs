@@ -300,6 +300,14 @@ function initClipRange() {
       .__clip_root.__clip_zoomed .__clip_zoom_band {
         opacity: 1;
       }
+      .__clip_disable_hover .bpx-player-progress-hover,
+      .__clip_disable_hover .bpx-player-progress-preview,
+      .__clip_disable_hover .bpx-player-progress-preview-image,
+      .__clip_disable_hover .bpx-player-progress-preview-picture,
+      .__clip_disable_hover .bpx-player-progress-pop,
+      .__clip_disable_hover .bpx-player-progress-tooltip {
+        display: none !important;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -388,6 +396,13 @@ function initClipRange() {
     return baselineLeft + (xBase / baseWidth) * baselineWidth;
   };
 
+  const baseXToScreenXScaled = (xBase) => {
+    const baseWidth = getBaseWidth();
+    const rect = getBaseRect();
+    if (!baseWidth || !rect.width) return rect.left || 0;
+    return rect.left + (xBase / baseWidth) * rect.width;
+  };
+
   let zoomBadge = null;
   let zoomOverlay = null;
 
@@ -428,13 +443,14 @@ function initClipRange() {
     const zoomActive = zoomScale > 1.02;
     root.classList.toggle("__clip_zoomed", zoomActive);
     zoomOverlay?.classList?.toggle("__clip_zoomed", zoomActive);
+    progressWrap.classList.toggle("__clip_disable_hover", zoomActive);
+    baseEl.classList.toggle("__clip_disable_hover", zoomActive);
     if (zoomActive && zoomBadge) {
       zoomBadge.textContent = `Zoom x${zoomScale.toFixed(1)}`;
     }
     const inverse = zoomScale ? 1 / zoomScale : 1;
     hStart?.style?.setProperty?.("--clip-scale", inverse);
     hEnd?.style?.setProperty?.("--clip-scale", inverse);
-    tooltip?.style?.setProperty?.("--clip-scale", inverse);
   };
 
   const applyZoom = () => {
@@ -523,7 +539,7 @@ function initClipRange() {
       clientY,
       view: window
     });
-    progressWrap.dispatchEvent(evt);
+    (baseEl || progressWrap).dispatchEvent(evt);
   }
 
   function readBpxPreviewImage() {
@@ -610,7 +626,7 @@ function initClipRange() {
   Object.assign(tooltip.style, {
     position: "absolute",
     bottom: "26px",
-    transform: "scaleX(var(--clip-scale, 1)) translateX(-50%)",
+    transform: "translateX(-50%)",
     pointerEvents: "none",
     display: "none",
     background: "rgba(0,0,0,0.78)",
@@ -649,9 +665,9 @@ function initClipRange() {
   root.appendChild(rangeBar);
   root.appendChild(hStart);
   root.appendChild(hEnd);
-  root.appendChild(tooltip);
   baseEl.appendChild(root);
   zoomOverlay.appendChild(zoomBadge);
+  zoomOverlay.appendChild(tooltip);
   progressWrap.appendChild(zoomOverlay);
 
   function render() {
@@ -746,10 +762,13 @@ function initClipRange() {
     const r = getRange();
     if (!r) return;
     const xBase = clamp((t / r.d) * baseWidth, 0, baseWidth);
-    tooltip.style.left = `${xBase}px`;
+    const overlayRect = zoomOverlay?.getBoundingClientRect?.();
+    const anchorScreenX = baseXToScreenXScaled(xBase);
+    const overlayLeft = overlayRect?.left ?? 0;
+    tooltip.style.left = `${anchorScreenX - overlayLeft}px`;
     tooltip.style.display = "block";
     tipTime.textContent = fmt(t);
-    const previewX = baseXToScreenX(xBase, r);
+    const previewX = baseXToScreenXScaled(xBase);
     pokeBpxPreview(previewX, rect.top + rect.height / 2);
     const prev = readBpxPreviewImage();
     if (prev?.type === "src") {
