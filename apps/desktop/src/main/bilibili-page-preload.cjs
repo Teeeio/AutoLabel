@@ -933,6 +933,7 @@ function initClipRange() {
     if (!r) return;
     const t = videoEl.currentTime;
     const EPS = 0.03;
+    const endIsVideoEnd = Math.abs(r.e - r.d) < 0.05;
     if (!videoEl.paused && t >= r.e - EPS) {
       internalLock = true;
       videoEl.currentTime = r.s;

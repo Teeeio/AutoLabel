@@ -31,5 +31,6 @@ contextBridge.exposeInMainWorld("auth", {
   login: () => ipcRenderer.invoke("auth:login"),
   getCookie: () => ipcRenderer.invoke("auth:cookie:get"),
   setCookie: (payload) => ipcRenderer.invoke("auth:cookie:set", payload),
-  clearCookie: () => ipcRenderer.invoke("auth:cookie:clear")
+  clearCookie: () => ipcRenderer.invoke("auth:cookie:clear"),
+  logout: () => ipcRenderer.invoke("auth:logout")
 });

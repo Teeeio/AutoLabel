@@ -1,5 +1,16 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import {
+  createCard,
+  getCards,
+  getBiliCover,
+  getSession,
+  login,
+  logout,
+  register,
+  searchCardsPublic,
+  updateCard
+} from "./communityApi";
 function extractBvid(input) {
   if (!input) return "";
   const trimmed = input.trim();
@@ -7,11 +18,33 @@ function extractBvid(input) {
   if (directMatch) return directMatch[0];
   return "";
 }
-
+function normalizeCardTags(tags) {
+  if (Array.isArray(tags)) {
+    return tags.map((tag) => String(tag || "").trim()).filter(Boolean);
+  }
+  if (typeof tags === "string") {
+    return tags
+      .split(",")
+      .map((tag) => String(tag || "").trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+function hydrateCard(card) {
+  if (!card) return null;
+  const tags = normalizeCardTags(card.tags);
+  return {
+    ...card,
+    tags: tags.join(", "),
+    searchTags: tags,
+    clipTags: Array.isArray(card.clipTags) ? card.clipTags : [],
+    notes: card.notes || "",
+    visibility: card.visibility === "public" ? "public" : "private"
+  };
+}
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
-
 function formatTime(value) {
   if (!Number.isFinite(value)) return "00:00";
   const total = Math.max(0, Math.floor(value));
@@ -19,7 +52,6 @@ function formatTime(value) {
   const seconds = total % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
-
 function buildEmbedUrl({ bvid, aid, cid }) {
   if (!bvid) return "";
   const params = new URLSearchParams();
@@ -28,10 +60,25 @@ function buildEmbedUrl({ bvid, aid, cid }) {
   if (cid) params.set("cid", cid);
   return `https://www.bilibili.com/video/${bvid}?${params.toString()}`;
 }
-
+function buildCardPreviewUrl({ bvid, start }) {
+  if (!bvid) return "";
+  const params = new URLSearchParams();
+  params.set("bvid", bvid);
+  params.set("autoplay", "0");
+  params.set("muted", "1");
+  params.set("danmaku", "0");
+  params.set("high_quality", "1");
+  params.set("as_wide", "1");
+  params.set("page", "1");
+  if (Number.isFinite(start) && start > 0) {
+    params.set("t", String(Math.floor(start)));
+  }
+  return `https://player.bilibili.com/player.html?${params.toString()}#t=${Math.floor(start || 0)}`;
+}
 const bilibiliUserAgent =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
+const placeholderAvatar =
+  "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2096%2096%22%3E%3Crect%20width%3D%2296%22%20height%3D%2296%22%20rx%3D%2248%22%20fill%3D%22%23e2e8f0%22/%3E%3Ccircle%20cx%3D%2248%22%20cy%3D%2238%22%20r%3D%2218%22%20fill%3D%22%2394a3b8%22/%3E%3Cpath%20d%3D%22M16%2084c6-18%2024-28%2032-28h0c8%200%2026%2010%2032%2028%22%20fill%3D%22%2394a3b8%22/%3E%3C/svg%3E";
 function mergeRanges(ranges, nextRange) {
   if (!Number.isFinite(nextRange.start) || !Number.isFinite(nextRange.end)) {
     return ranges;
@@ -55,7 +102,6 @@ function mergeRanges(ranges, nextRange) {
   }
   return merged;
 }
-
 function rangesEqual(a, b) {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i += 1) {
@@ -64,7 +110,6 @@ function rangesEqual(a, b) {
   }
   return true;
 }
-
 function findMissingRange(start, end, ranges, epsilon = 0.05) {
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
   let cursor = start;
@@ -79,7 +124,6 @@ function findMissingRange(start, end, ranges, epsilon = 0.05) {
   if (cursor < end - epsilon) return { start: cursor, end };
   return null;
 }
-
 function getBufferAhead(time, ranges, epsilon = 0.05) {
   if (!Number.isFinite(time)) return 0;
   for (const range of ranges) {
@@ -89,7 +133,6 @@ function getBufferAhead(time, ranges, epsilon = 0.05) {
   }
   return 0;
 }
-
 function patchWebviewIframeHeight(webview) {
   const iframe = webview?.shadowRoot?.querySelector("iframe");
   if (!iframe) return false;
@@ -97,7 +140,6 @@ function patchWebviewIframeHeight(webview) {
   iframe.style.minHeight = "100%";
   return true;
 }
-
 function patchSearchWebviewIframeHeight(webview) {
   const iframe = webview?.shadowRoot?.querySelector("iframe");
   if (!iframe) return false;
@@ -105,7 +147,6 @@ function patchSearchWebviewIframeHeight(webview) {
   iframe.style.minHeight = "100%";
   return true;
 }
-
 function findSegmentIndex(time, segments) {
   if (!segments?.length || !Number.isFinite(time)) return 0;
   let low = 0;
@@ -123,7 +164,6 @@ function findSegmentIndex(time, segments) {
   }
   return Math.min(low, segments.length - 1);
 }
-
 export default function App() {
   const [cards, setCards] = useState([]);
   const [selection, setSelection] = useState([]);
@@ -140,6 +180,38 @@ export default function App() {
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [dragHandle, setDragHandle] = useState(null);
   const [authStatus, setAuthStatus] = useState("not logged in");
+  const [communitySession, setCommunitySession] = useState(null);
+  const [communityLogin, setCommunityLogin] = useState({ username: "", password: "" });
+  const [communityStatus, setCommunityStatus] = useState({ loading: false, error: "" });
+  const [communityMyCards, setCommunityMyCards] = useState([]);
+  const [communitySearchQuery, setCommunitySearchQuery] = useState("");
+  const [communitySearchSort, setCommunitySearchSort] = useState("latest");
+  const [communityCardResults, setCommunityCardResults] = useState([]);
+  const [saveNotice, setSaveNotice] = useState("");
+  const [manageFilter, setManageFilter] = useState("all");
+  const [manageSearch, setManageSearch] = useState("");
+  const [manageSelected, setManageSelected] = useState([]);
+  const [visibleManageIds, setVisibleManageIds] = useState([]);
+  const [visibleCommunityIds, setVisibleCommunityIds] = useState([]);
+  const [hoveredManageId, setHoveredManageId] = useState("");
+  const [hoveredCommunityId, setHoveredCommunityId] = useState("");
+  const [coverMap, setCoverMap] = useState({});
+  const visibleManageRef = useRef(new Set());
+  const visibleCommunityRef = useRef(new Set());
+  const coverMapRef = useRef({});
+  const coverLoadingRef = useRef(new Set());
+  const [hoveredManageBvid, setHoveredManageBvid] = useState("");
+  const [hoveredCommunityBvid, setHoveredCommunityBvid] = useState("");
+  const [showManageWebviewId, setShowManageWebviewId] = useState("");
+  const [showCommunityWebviewId, setShowCommunityWebviewId] = useState("");
+  const [manageLoadingState, setManageLoadingState] = useState(new Map());
+  const [communityLoadingState, setCommunityLoadingState] = useState(new Map());
+  const manageWebviewTimerRef = useRef(null);
+  const communityWebviewTimerRef = useRef(null);
+  const [loadTick, setLoadTick] = useState(0);
+  const loadTimerRef = useRef(null);
+  const [showCommunityAuth, setShowCommunityAuth] = useState(false);
+  const [communityAuthMode, setCommunityAuthMode] = useState("login");
   const [previewQuality, setPreviewQuality] = useState("720p");
   const [duration, setDuration] = useState(0);
   const [sourceDuration, setSourceDuration] = useState(0);
@@ -189,10 +261,11 @@ export default function App() {
   });
   const [form, setForm] = useState({
     title: "",
-    artist: "",
     source: "",
     tags: "",
-    bpm: ""
+    bpm: "",
+    notes: "",
+    visibility: "private"
   });
   const [tagInput, setTagInput] = useState("");
   const [tagList, setTagList] = useState([]);
@@ -218,6 +291,31 @@ export default function App() {
   const [thumbs, setThumbs] = useState({ start: "", end: "" });
   const prefetchRef = useRef({ inflight: false, lastKey: "", lastAt: 0 });
   const searchWebviewRef = useRef(null);
+  const managePreviewWebviewsRef = useRef(new Map());
+  const communityPreviewWebviewsRef = useRef(new Map());
+  const initializeCardPreview = useCallback((webview, bvid, start) => {
+    if (!webview) return;
+    webview.addEventListener('dom-ready', () => {
+      setTimeout(() => {
+        webview.executeJavaScript(`
+          (function() {
+            const video = document.querySelector('video');
+            if (video) {
+              video.pause();
+              const targetTime = ${Number.isFinite(start) ? start : 0};
+              if (targetTime > 0 && Math.abs(video.currentTime - targetTime) > 0.5) {
+                video.currentTime = targetTime;
+              }
+            }
+            const player = document.querySelector('.bpx-player-container');
+            if (player) {
+              player.style.pointerEvents = 'none';
+            }
+          })();
+        `).catch(() => {});
+      }, 500);
+    });
+  }, []);
   useEffect(() => {
     const root = document.documentElement;
     const topbar = document.querySelector(".topbar");
@@ -236,9 +334,126 @@ export default function App() {
     return () => {
       window.removeEventListener("resize", update);
       observer?.disconnect();
+      if (manageWebviewTimerRef.current) {
+        clearTimeout(manageWebviewTimerRef.current);
+      }
+      if (communityWebviewTimerRef.current) {
+        clearTimeout(communityWebviewTimerRef.current);
+      }
+    };
+  }, []);
+  useEffect(() => {
+    if (!showManageWebviewId) return;
+    const webview = document.getElementById(`manage-preview-${showManageWebviewId}`);
+    if (!webview) return;
+    const handler = () => {
+      const loadTime = Date.now() - (manageLoadingState.get(showManageWebviewId)?.webviewStartTime || Date.now());
+      setManageLoadingState((prev) => new Map(prev).set(showManageWebviewId, {
+        ...prev.get(showManageWebviewId),
+        webviewLoading: false,
+        webviewReady: true,
+        webviewLoadTime: loadTime
+      }));
+      setTimeout(() => {
+        webview.style.opacity = '1';
+        webview.executeJavaScript(`
+          (function() {
+            const video = document.querySelector('video');
+            if (video) {
+              video.pause();
+            }
+            const player = document.querySelector('.bpx-player-container');
+            if (player) {
+              player.style.pointerEvents = 'none';
+            }
+          })();
+        `).catch(() => {});
+      }, 300);
+    };
+    webview.addEventListener('dom-ready', handler);
+    return () => {
+      webview.removeEventListener('dom-ready', handler);
+      webview.style.opacity = '0';
+    };
+  }, [showManageWebviewId, manageLoadingState]);
+  useEffect(() => {
+    if (!showCommunityWebviewId) return;
+    const webview = document.getElementById(`community-preview-${showCommunityWebviewId}`);
+    if (!webview) return;
+    const handler = () => {
+      const loadTime = Date.now() - (communityLoadingState.get(showCommunityWebviewId)?.webviewStartTime || Date.now());
+      setCommunityLoadingState((prev) => new Map(prev).set(showCommunityWebviewId, {
+        ...prev.get(showCommunityWebviewId),
+        webviewLoading: false,
+        webviewReady: true,
+        webviewLoadTime: loadTime
+      }));
+      setTimeout(() => {
+        webview.style.opacity = '1';
+        webview.executeJavaScript(`
+          (function() {
+            const video = document.querySelector('video');
+            if (video) {
+              video.pause();
+            }
+            const player = document.querySelector('.bpx-player-container');
+            if (player) {
+              player.style.pointerEvents = 'none';
+            }
+          })();
+        `).catch(() => {});
+      }, 300);
+    };
+    webview.addEventListener('dom-ready', handler);
+    return () => {
+      webview.removeEventListener('dom-ready', handler);
+      webview.style.opacity = '0';
+    };
+  }, [showCommunityWebviewId, communityLoadingState]);
+  useEffect(() => {
+    loadTimerRef.current = setInterval(() => {
+      setLoadTick((prev) => prev + 1);
+    }, 100);
+    return () => {
+      if (loadTimerRef.current) {
+        clearInterval(loadTimerRef.current);
+        loadTimerRef.current = null;
+      }
     };
   }, []);
   const useEmbedPlayer = true;
+  const getLoadingTime = useCallback((cardId, type) => {
+    const state = manageLoadingState.get(cardId);
+    if (!state) return 0;
+    if (type === 'cover') {
+      if (state.coverLoadTime) return state.coverLoadTime;
+      if (state.coverLoading && state.coverStartTime) {
+        return Date.now() - state.coverStartTime;
+      }
+    } else if (type === 'webview') {
+      if (state.webviewLoadTime) return state.webviewLoadTime;
+      if (state.webviewLoading && state.webviewStartTime) {
+        return Date.now() - state.webviewStartTime;
+      }
+    }
+    return 0;
+  }, [manageLoadingState]);
+  const getCommunityLoadingTime = useCallback((cardId, type) => {
+    const state = communityLoadingState.get(cardId);
+    if (!state) return 0;
+    if (type === 'cover') {
+      if (state.coverLoadTime) return state.coverLoadTime;
+      if (state.coverLoading && state.coverStartTime) {
+        return Date.now() - state.coverStartTime;
+      }
+    } else if (type === 'webview') {
+      if (state.webviewLoadTime) return state.webviewLoadTime;
+      if (state.webviewLoading && state.webviewStartTime) {
+        return Date.now() - state.webviewStartTime;
+      }
+    }
+    return 0;
+  }, [communityLoadingState]);
   const useEmbedHijack = true;
   const sendPlayerCommand = useCallback((type, payload = {}) => {
     if (!useEmbedHijack) return;
@@ -250,7 +465,6 @@ export default function App() {
     }
     view.send("player:command", { type, ...payload });
   }, []);
-
   const activeCard = useMemo(() => {
     const found = cards.find((card) => card.id === activeId);
     return found || previewSource;
@@ -262,19 +476,21 @@ export default function App() {
       const next = {
         ...prev,
         title: activeCard.title || prev.title || "",
-        artist: activeCard.artist || prev.artist || "",
-        source: activeCard.bvid || prev.source || ""
+        source: activeCard.bvid || prev.source || "",
+        notes: activeCard.notes || prev.notes || "",
+        visibility: activeCard.visibility || prev.visibility || "private"
       };
       if (
         next.title === prev.title &&
-        next.artist === prev.artist &&
-        next.source === prev.source
+        next.source === prev.source &&
+        next.notes === prev.notes &&
+        next.visibility === prev.visibility
       ) {
         return prev;
       }
       return next;
     });
-  }, [activeCard?.title, activeCard?.artist, activeCard?.bvid]);
+  }, [activeCard?.title, activeCard?.bvid, activeCard?.notes, activeCard?.visibility]);
   const parseStats = useMemo(() => {
     return parseQueue.reduce(
       (acc, item) => {
@@ -433,7 +649,6 @@ export default function App() {
     (time) => time < rangeStart - rangeEpsilon || time > rangeEnd + rangeEpsilon,
     [rangeStart, rangeEnd]
   );
-
   const seekPlayer = useCallback(
     (timeValue) => {
       const clamped = clamp(timeValue, rangeStart, rangeEnd);
@@ -442,7 +657,6 @@ export default function App() {
     },
     [rangeStart, rangeEnd, sendPlayerCommand]
   );
-
   const safePlay = useCallback(async () => {
     if (playRequestRef.current) return;
     playRequestRef.current = Promise.resolve();
@@ -452,7 +666,6 @@ export default function App() {
       playRequestRef.current = null;
     }
   }, [sendPlayerCommand]);
-
   const togglePlayback = useCallback(async () => {
     if (!previewUrl) return;
     if (isOutsideRange(currentTime)) {
@@ -476,17 +689,14 @@ export default function App() {
     seekPlayer,
     sendPlayerCommand
   ]);
-
   const toggleMute = useCallback(() => {
     setIsMuted((prev) => !prev);
   }, []);
-
   const handleVolumeChange = useCallback((event) => {
     const nextValue = Number(event.target.value);
     setVolume(nextValue);
     if (nextValue > 0 && muteRef.current) setIsMuted(false);
   }, []);
-
   const handleSurfaceClick = useCallback((event) => {
     if (isScrubbing) return;
     if (event.defaultPrevented) return;
@@ -496,7 +706,6 @@ export default function App() {
     if (target.closest("button, input, select, a")) return;
     togglePlayback();
   }, [isScrubbing, togglePlayback]);
-
   const markQueueResolved = useCallback((bvid, result) => {
     if (!bvid || !result?.url) return;
     if (Array.isArray(result.cachedRanges) && result.cachedRanges.length) {
@@ -535,19 +744,17 @@ export default function App() {
       );
     });
   }, [addCachedRange, previewQuality]);
-
   const markQueueError = useCallback((bvid, err) => {
     if (!bvid) return;
     setParseQueue((prev) => {
       if (!prev.some((entry) => entry.bvid === bvid)) return prev;
       return prev.map((entry) =>
         entry.bvid === bvid
-          ? { ...entry, status: "error", error: err?.message || "解析失败" }
+          ? { ...entry, status: "error", error: err?.message || "瑙ｆ瀽澶辫触" }
           : entry
       );
     });
   }, []);
-
   const requestThumbnail = useCallback(
     (time, type) => {
       const video = thumbVideoRef.current;
@@ -570,14 +777,12 @@ export default function App() {
         return;
       }
       thumbQueueRef.current.busy = true;
-
       const finalize = () => {
         thumbQueueRef.current.busy = false;
         const next = thumbQueueRef.current.pending;
         thumbQueueRef.current.pending = null;
         if (next) requestThumbnail(next.time, next.type);
       };
-
       const drawFrame = () => {
         const width = video.videoWidth || 320;
         const height = video.videoHeight || 180;
@@ -601,7 +806,6 @@ export default function App() {
         }
         finalize();
       };
-
       const seekAndDraw = () => {
         const target = clamp(clamped, 0, previewSpan || clamped);
         if (Math.abs(video.currentTime - target) < 0.04 && video.readyState >= 2) {
@@ -620,7 +824,6 @@ export default function App() {
           drawFrame();
         }
       };
-
       if (video.readyState >= 2) {
         seekAndDraw();
         return;
@@ -633,22 +836,18 @@ export default function App() {
     },
     [previewUrl, isSegmentPreview, segmentOffset, previewSpan, isDashMode, useEmbedPlayer]
   );
-
   useEffect(() => {
     parseQueueRef.current = parseQueue;
   }, [parseQueue]);
-
   useEffect(() => {
     setThumbs({ start: "", end: "" });
     setDragHandle(null);
   }, [previewUrl]);
-
   useEffect(() => {
     if (!isScrubbing || !dragHandle) return;
     if (dragHandle === "start") requestThumbnail(rangeStart, "start");
     if (dragHandle === "end") requestThumbnail(rangeEnd, "end");
   }, [isScrubbing, dragHandle, rangeStart, rangeEnd, requestThumbnail]);
-
   useEffect(() => {
     const switchToken = ++previewSwitchRef.current;
     setPreviewUrl("");
@@ -693,7 +892,6 @@ export default function App() {
     activeCardInLibrary,
     previewEpoch
   ]);
-
   useEffect(() => {
     if (!Number.isFinite(sourceDuration) || sourceDuration <= 0) return;
     if (rangeEnd <= sourceDuration) return;
@@ -704,14 +902,11 @@ export default function App() {
     lastRangeStartRef.current = nextStart;
     setCurrentTime((prev) => (prev > nextEnd ? nextStart : prev));
   }, [sourceDuration, rangeEnd, rangeStart]);
-
   useEffect(() => {
     if (!activeCard?.bvid || isScrubbing) return;
     if (!previewUrl) return;
     sendPlayerCommand("range", { start: rangeStart, end: rangeEnd });
   }, [activeCard?.bvid, isScrubbing, previewUrl, rangeStart, rangeEnd, sendPlayerCommand]);
-
-
   useEffect(() => {
     if (!activeId?.startsWith("source-")) return;
     const bvid = activeId.replace("source-", "");
@@ -740,24 +935,20 @@ export default function App() {
       return changed ? next : prev;
     });
   }, [activeId, parseQueue, sourceDuration]);
-
   useEffect(() => {
     const localStart = isSegmentPreview ? clamp(rangeStart - segmentOffset, 0, previewSpan) : rangeStart;
     const localEnd = isSegmentPreview ? clamp(rangeEnd - segmentOffset, 0, previewSpan) : rangeEnd;
     rangeRef.current = { start: localStart, end: localEnd };
   }, [rangeStart, rangeEnd, isSegmentPreview, segmentOffset, previewSpan]);
-
   useEffect(() => {
     volumeRef.current = volume;
     muteRef.current = isMuted;
     sendPlayerCommand("volume", { value: volume, muted: isMuted });
   }, [volume, isMuted, sendPlayerCommand]);
-
   useEffect(() => {
     rateRef.current = playbackRate;
     sendPlayerCommand("rate", { value: playbackRate });
   }, [playbackRate, sendPlayerCommand]);
-
   useEffect(() => {
   const clearHold = () => {
     if (keyHoldRef.current.timeout) {
@@ -773,7 +964,6 @@ export default function App() {
     keyHoldRef.current.lastFrame = null;
     keyHoldRef.current.seekTime = null;
   };
-
     const startRewindLoop = () => {
       const speed = 27;
     const loop = (now) => {
@@ -791,7 +981,6 @@ export default function App() {
     keyHoldRef.current.lastFrame = null;
     keyHoldRef.current.raf = requestAnimationFrame(loop);
   };
-
   const handleKeyDown = (event) => {
     const target = event.target;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) {
@@ -799,18 +988,15 @@ export default function App() {
     }
     if (event.repeat) return;
     if (!previewUrl) return;
-
     if (event.key === " " || event.code === "Space") {
       event.preventDefault();
       togglePlayback();
       return;
     }
-
     if (event.key.toLowerCase() === "m") {
       toggleMute();
       return;
     }
-
     if (event.key === "ArrowUp") {
       event.preventDefault();
       const base = muteRef.current ? 0 : volumeRef.current;
@@ -819,7 +1005,6 @@ export default function App() {
       if (next > 0 && muteRef.current) setIsMuted(false);
       return;
     }
-
     if (event.key === "ArrowDown") {
       event.preventDefault();
       const base = muteRef.current ? 0 : volumeRef.current;
@@ -828,14 +1013,12 @@ export default function App() {
       if (next === 0) setIsMuted(true);
       return;
     }
-
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       event.preventDefault();
       if (keyHoldRef.current.key && keyHoldRef.current.key !== event.key) return;
       if (keyHoldRef.current.key === event.key) return;
       keyHoldRef.current.key = event.key;
       keyHoldRef.current.long = false;
-
       keyHoldRef.current.timeout = setTimeout(() => {
         if (keyHoldRef.current.key !== event.key) return;
         keyHoldRef.current.long = true;
@@ -852,12 +1035,10 @@ export default function App() {
       }, 220);
     }
   };
-
   const handleKeyUp = (event) => {
     if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
     if (keyHoldRef.current.key && keyHoldRef.current.key !== event.key) return;
     const step = 5;
-
     if (!keyHoldRef.current.long) {
       const delta = event.key === "ArrowRight" ? step : -step;
       const next = clamp(currentTime + delta, rangeRef.current.start, rangeRef.current.end);
@@ -868,10 +1049,8 @@ export default function App() {
     } else if (event.key === "ArrowLeft") {
       if (keyHoldRef.current.raf) cancelAnimationFrame(keyHoldRef.current.raf);
     }
-
     clearHold();
   };
-
   const handleBlur = () => {
     if (keyHoldRef.current.key === "ArrowRight" && keyHoldRef.current.long) {
       const nextRate = keyHoldRef.current.lastRate || 1;
@@ -879,7 +1058,6 @@ export default function App() {
     }
     clearHold();
   };
-
     window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("keyup", handleKeyUp, true);
     window.addEventListener("blur", handleBlur);
@@ -890,14 +1068,11 @@ export default function App() {
       clearHold();
     };
 }, [safePlay, togglePlayback, toggleMute, seekPlayer, currentTime, previewUrl, isPlaying]);
-
-
   const buildSearchUrl = useCallback((query) => {
     const keyword = encodeURIComponent(query.trim());
     if (!keyword) return "https://search.bilibili.com/all";
     return `https://search.bilibili.com/all?keyword=${keyword}`;
   }, []);
-
   const pushSearchDebug = useCallback((message) => {
     const text = String(message || "").trim();
     if (!text) return;
@@ -907,7 +1082,6 @@ export default function App() {
       return next.slice(-120);
     });
   }, []);
-
   const handleSearchSubmit = useCallback(
     (event) => {
       if (event?.preventDefault) event.preventDefault();
@@ -921,7 +1095,6 @@ export default function App() {
     },
     [searchQuery, searchSuggestion, buildSearchUrl]
   );
-
   const enqueueParseSources = () => {
     const raw = parseInput.trim();
     if (!raw) return;
@@ -937,7 +1110,7 @@ export default function App() {
             source,
             bvid: "",
             status: "invalid",
-            error: "无效BV号"
+            error: "Invalid BV"
           });
           return;
         }
@@ -955,7 +1128,6 @@ export default function App() {
     });
     setParseInput("");
   };
-
   const resolveQueueItem = useCallback(async (item, options = {}) => {
     setParseQueue((prev) =>
       prev.map((entry) => (entry.id === item.id ? { ...entry, status: "resolving", error: "" } : entry))
@@ -963,7 +1135,7 @@ export default function App() {
     try {
       const info = await window.preview?.info({ bvid: item.bvid });
       if (!info) {
-        throw new Error("解析失败");
+        throw new Error("瑙ｆ瀽澶辫触");
       }
       const resolvedDuration = Number.isFinite(info.duration) ? info.duration : item.duration;
       setParseQueue((prev) =>
@@ -987,12 +1159,11 @@ export default function App() {
     } catch (err) {
       setParseQueue((prev) =>
         prev.map((entry) =>
-          entry.id === item.id ? { ...entry, status: "error", error: err?.message || "解析失败" } : entry
+          entry.id === item.id ? { ...entry, status: "error", error: err?.message || "瑙ｆ瀽澶辫触" } : entry
         )
       );
     }
   }, [previewQuality]);
-
   const resolveParseQueue = useCallback(async (mode = "pending") => {
     if (isBatchResolving) return;
     const statuses = mode === "failed" ? ["error"] : ["pending"];
@@ -1011,14 +1182,12 @@ export default function App() {
     await Promise.all(workers);
     setIsBatchResolving(false);
   }, [isBatchResolving, resolveQueueItem]);
-
   useEffect(() => {
     if (isQueueResolving || isBatchResolving) return;
     const hasPending = parseQueueRef.current.some((item) => item.status === "pending");
     if (!hasPending) return;
     resolveParseQueue("pending");
   }, [parseQueue, isQueueResolving, isBatchResolving, resolveParseQueue]);
-
   const handleQueuePreview = (item) => {
     if (!item?.bvid) return;
     const bvid = item.bvid;
@@ -1073,12 +1242,13 @@ export default function App() {
     const previewCard = {
       id: `source-${bvid}`,
       title: item.title || existing?.title || "加载中...",
-      artist: item.author || form.artist || "未知",
       start: 0,
       end: resolvedDuration ? Math.min(30, resolvedDuration) : 30,
       bvid,
       tags: form.tags,
       bpm: form.bpm,
+      notes: form.notes,
+      visibility: form.visibility,
       aid: item.aid || existing?.aid || "",
       cid: item.cid || existing?.cid || "",
       resolvedUrl:
@@ -1093,7 +1263,6 @@ export default function App() {
     setPreviewSource(previewCard);
     setActiveId(previewCard.id);
   };
-
   const handleQueueUse = (item) => {
     if (!item?.bvid) return;
     setForm((prev) => ({
@@ -1102,17 +1271,14 @@ export default function App() {
       source: item.source || item.bvid || prev.source
     }));
   };
-
   const handleQueueRemove = (id) => {
     setParseQueue((prev) => prev.filter((item) => item.id !== id));
   };
-
   const handlePreviewCard = (card) => {
     setPreviewEpoch((prev) => prev + 1);
     setPreviewSource(null);
     setActiveId(card.id);
   };
-
   const syncCardRange = useCallback(
     (startValue, endValue) => {
       if (!activeCardInLibrary) return;
@@ -1129,7 +1295,6 @@ export default function App() {
     },
     [activeCardInLibrary, activeId]
   );
-
   const updateRangeState = useCallback(
     (startValue, endValue) => {
       setRangeStart(startValue);
@@ -1140,86 +1305,370 @@ export default function App() {
     },
     [syncCardRange]
   );
-
-  const handleAddCard = () => {
+  const handleAddCard = async () => {
+    if (!communitySession) {
+      setCommunityStatus({ loading: false, error: "请先登录社区账号。" });
+      openCommunityLogin();
+      return;
+    }
     const rawSource = activeCard?.bvid || form.source || "";
     const bvid = extractBvid(rawSource);
     const resolvedTitle = (form.title || activeCard?.title || "").trim();
     if (!resolvedTitle) {
-      alert("请先添加至少一个标签。");
+      alert("请先输入标题。");
       return;
     }
     if (!bvid) {
-      alert("请先添加至少一个标签。");
+      alert("请先选择视频。");
       return;
     }
-
     const startValue = Number.isFinite(rangeStart) ? rangeStart : 0;
     const endValue = Number.isFinite(rangeEnd) ? rangeEnd : startValue + 30;
     const start = Math.min(startValue, endValue);
     const end = Math.max(startValue, endValue);
-
-    const newCard = {
-      id: bvid + "-" + Date.now(),
-      title: resolvedTitle,
-      artist: activeCard?.artist || form.artist || "未知",
-      start,
-      end,
-      bvid,
-      tags: tagList.join(", "),
-      searchTags: [...tagList],
-      clipTags: [...clipTags],
-      bpm: form.bpm.trim()
-    };
-
-    setCards((prev) => [newCard, ...prev]);
-    setActiveId(newCard.id);
-    setForm({ title: "", artist: "", source: "", tags: "", bpm: "" });
+    setCommunityStatus({ loading: true, error: "" });
+    let result;
+    try {
+      result = await createCard({
+        title: resolvedTitle,
+        bvid,
+        start,
+        end,
+        tags: [...tagList],
+        clipTags: [...clipTags],
+        bpm: form.bpm.trim(),
+        notes: form.notes.trim(),
+        visibility: form.visibility
+      });
+    } catch (err) {
+      setCommunityStatus({
+        loading: false,
+        error: "服务端未启动或网络异常。",
+      });
+      return;
+    }
+    if (!result.ok) {
+      setCommunityStatus({ loading: false, error: result.message || "创建失败。" });
+      if (result.message && result.message.includes("not logged in")) {
+        openCommunityLogin();
+      }
+      return;
+    }
+    const newCard = hydrateCard(result.item);
+    if (newCard) {
+      setCards((prev) => [newCard, ...prev]);
+    }
+    await loadCommunitySession();
+    await refreshCommunitySearch();
+    setSaveNotice("卡片已保存到社区。");
+    setCommunityStatus({ loading: false, error: "" });
+    setForm({
+      title: "",
+      source: "",
+      tags: "",
+      bpm: "",
+      notes: "",
+      visibility: "private"
+    });
     setTagInput("");
     setTagList([]);
     setClipTags([]);
   };
-
   const handleSelect = (card) => {
     setSelection((prev) => {
       if (prev.find((item) => item.id === card.id)) return prev;
       return [...prev, card];
     });
   };
-
-
   const handleRemove = (cardId) => {
     setSelection((prev) => prev.filter((item) => item.id !== cardId));
   };
-
   const normalizeTag = (value) => value.trim().replace(/^#/, "");
-
   const handleAddTag = () => {
     const nextTag = normalizeTag(tagInput);
     if (!nextTag) return;
     setTagList((prev) => (prev.includes(nextTag) ? prev : [...prev, nextTag]));
     setTagInput("");
   };
-
   const handleRemoveTag = (tag) => {
     setTagList((prev) => prev.filter((item) => item !== tag));
   };
-
   const handleTagKeyDown = (event) => {
     if (event.key === "Enter" || event.key === ",") {
       event.preventDefault();
       handleAddTag();
     }
   };
-
+  const handleApplyCardTags = (card) => {
+    const tags = normalizeCardTags(card?.tags);
+    if (!tags.length) return;
+    setTagList((prev) => Array.from(new Set([...prev, ...tags])));
+    setTagInput("");
+    if (card?.notes) {
+      setForm((prev) => (prev.notes ? prev : { ...prev, notes: card.notes }));
+    }
+  };
+  const openCommunityLogin = () => {
+    setCommunityAuthMode("login");
+    setCommunityStatus({ loading: false, error: "" });
+    setShowCommunityAuth(true);
+  };
+  const openCommunityRegister = () => {
+    setCommunityAuthMode("register");
+    setCommunityStatus({ loading: false, error: "" });
+    setShowCommunityAuth(true);
+  };
+  const loadCommunitySession = useCallback(async () => {
+    setCommunityStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    const session = await getSession();
+    setCommunitySession(session?.user || null);
+    if (session?.user) {
+      const cardRes = await getCards();
+      setCommunityMyCards(cardRes.ok ? cardRes.items.map(hydrateCard).filter(Boolean) : []);
+      setCards(cardRes.ok ? cardRes.items.map(hydrateCard).filter(Boolean) : []);
+    } else {
+      setCommunityMyCards([]);
+      setCards([]);
+    }
+    setCommunityStatus((prev) => ({ ...prev, loading: false }));
+  }, []);
+  const refreshCommunitySearch = useCallback(async () => {
+    const result = await searchCardsPublic({
+      query: communitySearchQuery,
+      sort: communitySearchSort
+    });
+    setCommunityCardResults(result.ok ? result.items.map(hydrateCard).filter(Boolean) : []);
+  }, [communitySearchQuery, communitySearchSort]);
+  const handleCommunityLogin = async () => {
+    setCommunityStatus({ loading: true, error: "" });
+    const result = await login(communityLogin);
+    if (!result.ok) {
+      setCommunityStatus({ loading: false, error: result.message || "登录失败。" });
+      return;
+    }
+    setCommunitySession(result.user || null);
+    setCommunityLogin({ username: "", password: "" });
+    setCommunityStatus({ loading: false, error: "" });
+    await loadCommunitySession();
+    await refreshCommunitySearch();
+    setShowCommunityAuth(false);
+  };
+  const handleCommunityRegister = async () => {
+    setCommunityStatus({ loading: true, error: "" });
+    const result = await register(communityLogin);
+    if (!result.ok) {
+      setCommunityStatus({ loading: false, error: result.message || "注册失败。" });
+      return;
+    }
+    setCommunityStatus({ loading: false, error: "" });
+    await handleCommunityLogin();
+  };
+  const handleCommunityLogout = async () => {
+    await logout();
+    setCommunitySession(null);
+    setCommunityMyCards([]);
+    setCards([]);
+    setCommunityStatus({ loading: false, error: "" });
+    await refreshCommunitySearch();
+  };
+  const handleToggleCardVisibility = async (card) => {
+    if (!communitySession || !card) {
+      setCommunityStatus({ loading: false, error: "请先登录社区账号。" });
+      openCommunityLogin();
+      return;
+    }
+    const nextVisibility = card.visibility === "public" ? "private" : "public";
+    await updateCard(card.id, { visibility: nextVisibility });
+    await loadCommunitySession();
+    await refreshCommunitySearch();
+  };
+  useEffect(() => {
+    loadCommunitySession();
+    refreshCommunitySearch();
+  }, [loadCommunitySession, refreshCommunitySearch]);
+  useEffect(() => {
+    if (!saveNotice) return;
+    const timer = setTimeout(() => setSaveNotice(""), 2500);
+    return () => clearTimeout(timer);
+  }, [saveNotice]);
+  useEffect(() => {
+    coverMapRef.current = coverMap;
+  }, [coverMap]);
+  const requestCover = useCallback(async (bvid, cardId, type = 'manage') => {
+    if (!bvid) return;
+    if (coverMapRef.current[bvid]) return;
+    if (coverLoadingRef.current.has(bvid)) return;
+    coverLoadingRef.current.add(bvid);
+    const startTime = Date.now();
+    if (type === 'manage' && cardId) {
+      setManageLoadingState((prev) => new Map(prev).set(cardId, {
+        ...prev.get(cardId),
+        coverLoading: true,
+        coverStartTime: startTime
+      }));
+    } else if (type === 'community' && cardId) {
+      setCommunityLoadingState((prev) => new Map(prev).set(cardId, {
+        ...prev.get(cardId),
+        coverLoading: true,
+        coverStartTime: startTime
+      }));
+    }
+    try {
+      let pic = "";
+      if (window.preview?.info) {
+        const info = await window.preview.info({ bvid });
+        pic = info?.pic || "";
+      }
+      if (!pic) {
+        const result = await getBiliCover({ bvid });
+        pic = result?.pic || "";
+      }
+      if (pic) {
+        pic = pic.replace(/^http:\/\//, "https://");
+      }
+      if (pic) {
+        setCoverMap((prev) => (prev[bvid] ? prev : { ...prev, [bvid]: pic }));
+      }
+    } catch (err) {
+      // ignore cover errors
+    } finally {
+      const loadTime = Date.now() - startTime;
+      if (type === 'manage' && cardId) {
+        setManageLoadingState((prev) => new Map(prev).set(cardId, {
+          ...prev.get(cardId),
+          coverLoading: false,
+          coverLoadTime: loadTime
+        }));
+      } else if (type === 'community' && cardId) {
+        setCommunityLoadingState((prev) => new Map(prev).set(cardId, {
+          ...prev.get(cardId),
+          coverLoading: false,
+          coverLoadTime: loadTime
+        }));
+      }
+      coverLoadingRef.current.delete(bvid);
+    }
+  }, []);
+  useEffect(() => {
+    if (!communityCardResults.length) {
+      visibleCommunityRef.current = new Set();
+      setVisibleCommunityIds([]);
+      return;
+    }
+    if (!("IntersectionObserver" in window)) {
+      setVisibleCommunityIds(communityCardResults.map((card) => card.id));
+      return;
+    }
+    visibleCommunityRef.current = new Set();
+    setVisibleCommunityIds([]);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let changed = false;
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const id = entry.target?.dataset?.cardId;
+          if (id && !visibleCommunityRef.current.has(id)) {
+            visibleCommunityRef.current.add(id);
+            changed = true;
+          }
+        });
+        if (changed) {
+          setVisibleCommunityIds(Array.from(visibleCommunityRef.current));
+        }
+      },
+      { root: null, rootMargin: "220px 0px", threshold: 0.1 }
+    );
+    const nodes = document.querySelectorAll(".community-card[data-card-id]");
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [communityCardResults]);
+  const filteredManageCards = useMemo(() => {
+    const query = manageSearch.trim().toLowerCase();
+    return communityMyCards.filter((card) => {
+      if (manageFilter !== "all" && card.visibility !== manageFilter) return false;
+      if (!query) return true;
+      return (
+        (card.title || "").toLowerCase().includes(query) ||
+        (card.bvid || "").toLowerCase().includes(query) ||
+        normalizeCardTags(card.tags).some((tag) => tag.toLowerCase().includes(query)) ||
+        (card.notes || "").toLowerCase().includes(query)
+      );
+    });
+  }, [communityMyCards, manageFilter, manageSearch]);
+  useEffect(() => {
+    if (!filteredManageCards.length) {
+      visibleManageRef.current = new Set();
+      setVisibleManageIds([]);
+      return;
+    }
+    if (!("IntersectionObserver" in window)) {
+      setVisibleManageIds(filteredManageCards.map((card) => card.id));
+      return;
+    }
+    visibleManageRef.current = new Set();
+    setVisibleManageIds([]);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let changed = false;
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const id = entry.target?.dataset?.cardId;
+          if (id && !visibleManageRef.current.has(id)) {
+            visibleManageRef.current.add(id);
+            changed = true;
+          }
+        });
+        if (changed) {
+          setVisibleManageIds(Array.from(visibleManageRef.current));
+        }
+      },
+      { root: null, rootMargin: "220px 0px", threshold: 0.1 }
+    );
+    const nodes = document.querySelectorAll(".manage-card[data-card-id]");
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [filteredManageCards]);
+  useEffect(() => {
+    if (!visibleManageIds.length) return;
+    const idSet = new Set(visibleManageIds);
+    filteredManageCards.forEach((card) => {
+      if (idSet.has(card.id)) {
+        requestCover(card.bvid);
+      }
+    });
+  }, [visibleManageIds, filteredManageCards]);
+  const handleToggleManageSelect = (tagId) => {
+    setManageSelected((prev) =>
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
+    );
+  };
+  const handleSelectAllManageTags = () => {
+    setManageSelected(filteredManageCards.map((card) => card.id));
+  };
+  const handleClearManageSelection = () => {
+    setManageSelected([]);
+  };
+  const handleBulkVisibility = async (visibility) => {
+    if (!communitySession) {
+      setCommunityStatus({ loading: false, error: "请先登录社区账号。" });
+      openCommunityLogin();
+      return;
+    }
+    const targets = communityMyCards.filter((card) => manageSelected.includes(card.id));
+    if (!targets.length) return;
+    setCommunityStatus({ loading: true, error: "" });
+    await Promise.all(targets.map((card) => updateCard(card.id, { visibility })));
+    await loadCommunitySession();
+    setCommunityStatus({ loading: false, error: "" });
+    setManageSelected([]);
+  };
   const clipTagGroups = [
     {
-      label: "团体",
+      label: "鍥綋",
       single: true,
-      options: ["μs", "Aqours", "Nijigasaki", "Liella", "Hasunosora"]
+      options: ["渭s", "Aqours", "Nijigasaki", "Liella", "Hasunosora"]
     }
   ];
-
   const toggleClipTag = (group, tag) => {
     setClipTags((prev) => {
       if (group?.single) {
@@ -1230,10 +1679,9 @@ export default function App() {
         : [...prev, tag];
     });
   };
-
   const handleGenerate = async (mode) => {
     if (selection.length === 0) {
-      alert("请先添加至少一个标签。");
+      alert("Please add at least one tag.");
       return;
     }
     setStatus("running");
@@ -1241,23 +1689,26 @@ export default function App() {
     const payload = { mode, selection };
     const result = await window.generator?.run(payload);
     if (!result?.ok) {
-      alert(result?.message || "生成器不可用");
+      alert(result?.message || "鐢熸垚鍣ㄤ笉鍙敤");
       setStatus("idle");
       return;
     }
     setStatus("done");
     alert(`${result.message}\n${result.outputPath || ""}`);
   };
-
   const handleLogin = async () => {
     if (!window.auth) {
       setAuthStatus("unavailable");
-      alert("请先添加至少一个标签。");
+      alert("无法登录。");
       return;
     }
     setAuthStatus("logging in");
     try {
-      await window.auth?.login();
+      const result = await window.auth?.login();
+      if (result?.cancelled) {
+        setAuthStatus("not logged in");
+        return;
+      }
       const status = await window.auth?.status();
       setAuthStatus(status?.cookiePath ? "logged in" : "not logged in");
       if (previewUrl && webviewRef.current) {
@@ -1268,11 +1719,22 @@ export default function App() {
       alert(err?.message || "登录失败。");
     }
   };
-
+  const handleBiliLogout = async () => {
+    if (!window.auth?.logout) {
+      setAuthStatus("unavailable");
+      return;
+    }
+    try {
+      await window.auth.logout();
+    } catch {}
+    setAuthStatus("not logged in");
+    if (previewUrl && webviewRef.current) {
+      webviewRef.current.reload();
+    }
+  };
   const handleReload = () => {
     window.location.reload();
   };
-
   useEffect(() => {
     let active = true;
     const hydrateAuth = async () => {
@@ -1281,9 +1743,9 @@ export default function App() {
         const status = await window.auth.status();
         if (!active) return;
         setAuthStatus(status?.cookiePath ? "logged in" : "not logged in");
-      if (previewUrl && webviewRef.current) {
-        webviewRef.current.reload();
-      }
+        if (previewUrl && webviewRef.current) {
+          webviewRef.current.reload();
+        }
       } catch {
         if (!active) return;
         setAuthStatus("not logged in");
@@ -1294,8 +1756,7 @@ export default function App() {
       active = false;
     };
   }, []);
-
-  const handleResolvePreview = async () => {
+  const handleResolvePreview = useCallback(() => {
     if (!activeCard) return;
     if (isResolving) return;
     resetDash();
@@ -1318,8 +1779,25 @@ export default function App() {
       resolvingRef.current = false;
       setIsResolving(false);
     }
-  };
-
+  }, [activeCard, isResolving, resetDash]);
+  const handlePreviewExternalCard = useCallback(
+    (card) => {
+      if (!card?.bvid) return;
+      const startValue = Number.isFinite(card.start) ? card.start : 0;
+      const endValue = Number.isFinite(card.end) ? card.end : startValue + 30;
+      updateRangeState(startValue, endValue);
+      const nextCard = {
+        ...card,
+        id: card.id || `public-${card.bvid}`
+      };
+      setPreviewEpoch((prev) => prev + 1);
+      setPreviewSource(nextCard);
+      setActiveId(nextCard.id);
+      setPreviewError("");
+      setPreviewUrl(buildEmbedUrl({ bvid: nextCard.bvid, aid: nextCard.aid, cid: nextCard.cid }));
+    },
+    [updateRangeState]
+  );
   const handleSetPoint = (field) => {
     if (!Number.isFinite(currentTime)) return;
     const timeValue = Math.floor(currentTime * 10) / 10;
@@ -1333,7 +1811,6 @@ export default function App() {
     const nextEnd = clamp(absoluteTime, rangeStart, maxValue);
     updateRangeState(rangeStart, nextEnd);
   };
-
   const handleRangeChange = (nextStart, nextEnd) => {
     const maxValue = sourceDuration || duration || Math.max(30, rangeEnd, nextEnd);
     const safeStart = clamp(nextStart, 0, maxValue);
@@ -1341,13 +1818,11 @@ export default function App() {
     const safeEnd = clamp(nextEnd, safeStart + minSpan, maxValue);
     updateRangeState(safeStart, safeEnd);
   };
-
   useEffect(() => {
     if (!useEmbedHijack) return;
     webviewReadyRef.current = false;
     pendingCommandsRef.current = [];
   }, [previewUrl, useEmbedHijack]);
-
   useEffect(() => {
     if (!previewUrl) return;
     setIsLoadingPreview(true);
@@ -1360,7 +1835,6 @@ export default function App() {
     }, 50);
     return () => clearTimeout(timer);
   }, [previewUrl]);
-
   useEffect(() => {
     if (!useEmbedHijack || !previewUrl) return;
     const view = webviewRef.current;
@@ -1404,7 +1878,6 @@ export default function App() {
     const timer = setInterval(pollRange, 400);
     return () => clearInterval(timer);
   }, [previewUrl, rangeStart, rangeEnd, updateRangeState, useEmbedHijack]);
-
   useEffect(() => {
     if (!useEmbedHijack) return;
     const view = webviewRef.current;
@@ -1535,7 +2008,6 @@ export default function App() {
     useEmbedHijack,
     updateRangeState
   ]);
-
   useEffect(() => {
     const view = searchWebviewRef.current;
     if (!view || !searchUrl) return;
@@ -1684,7 +2156,6 @@ export default function App() {
             list.style.visibility = "visible";
             list.style.opacity = "1";
             let sentinel = document.getElementById("rdg-search-sentinel");
-
             if (!sentinel) {
               sentinel = document.createElement("div");
               sentinel.id = "rdg-search-sentinel";
@@ -1959,10 +2430,10 @@ export default function App() {
                 const getEmptyReason = (doc) => {
                   if (!doc) return "";
                   const title = doc.title || "";
-                  if (title.includes("验证码") || title.includes("验证")) {
+                  if (title.includes("verify") || title.includes("captcha")) {
                     return "verify";
                   }
-                  if (title.includes("访问") || title.includes("受限")) {
+                  if (title.includes("璁块棶") || title.includes("鍙楅檺")) {
                     return "access";
                   }
                   if (
@@ -1973,7 +2444,7 @@ export default function App() {
                     return "empty";
                   }
                   const text = doc.body?.innerText || "";
-                  if (text.includes("没有找到") || text.includes("无相关")) {
+                  if (text.includes("no results") || text.includes("not found")) {
                     return "empty";
                   }
                   return "";
@@ -2264,8 +2735,6 @@ export default function App() {
       view.removeEventListener("console-message", handleConsoleMessage);
     };
   }, [searchUrl, searchResultsLimit, handleQueuePreview, pushSearchDebug]);
-
-
   const seekTo = (clientX) => {
     if (!timelineRef.current || timelineSpan <= 0) return;
     const rect = timelineRef.current.getBoundingClientRect();
@@ -2277,7 +2746,6 @@ export default function App() {
     if (Math.abs(clamped - rangeEnd) <= threshold) clamped = rangeEnd;
     seekPlayer(clamped);
   };
-
   const startScrub = useCallback(
     (type, clientX) => {
       if (!timelineRef.current || timelineSpan <= 0) return;
@@ -2307,7 +2775,6 @@ export default function App() {
     },
     [rangeStart, rangeEnd, seekTo, timelineSpan, isPlaying, sendPlayerCommand]
   );
-
   const handleTimelineMouseDown = (event) => {
     if (!timelineRef.current || timelineSpan <= 0) return;
     const roleTarget = event.target?.closest?.("[data-role]");
@@ -2324,7 +2791,6 @@ export default function App() {
               : "timeline";
     startScrub(type, event.clientX);
   };
-
   const handleStartHandleMouseDown = useCallback(
     (event) => {
       event.preventDefault();
@@ -2333,7 +2799,6 @@ export default function App() {
     },
     [startScrub]
   );
-
   const handleEndHandleMouseDown = useCallback(
     (event) => {
       event.preventDefault();
@@ -2342,7 +2807,6 @@ export default function App() {
     },
     [startScrub]
   );
-
   const handleRangeMouseDown = useCallback(
     (event) => {
       event.preventDefault();
@@ -2351,7 +2815,6 @@ export default function App() {
     },
     [startScrub]
   );
-
   useEffect(() => {
     const handleMove = (event) => {
       if (!dragRef.current.type || !timelineRef.current || timelineSpan <= 0) return;
@@ -2376,7 +2839,6 @@ export default function App() {
         handleRangeChange(rangeStart, dragRef.current.end + deltaSeconds);
       }
     };
-
     const handleUp = () => {
       if (dragRef.current.type) {
         setIsScrubbing(false);
@@ -2400,7 +2862,6 @@ export default function App() {
       }
       dragRef.current = { type: null, startX: 0, start: 0, end: 0 };
     };
-
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("mouseup", handleUp);
     window.addEventListener("blur", handleUp);
@@ -2412,7 +2873,6 @@ export default function App() {
       window.removeEventListener("mouseleave", handleUp);
     };
   }, [timelineSpan, rangeStart, rangeEnd, handleRangeChange, isOutsideRange, safePlay, currentTime, seekPlayer]);
-
   const handleTimelineHover = (event) => {
     if (!timelineRef.current || timelineSpan <= 0) return;
     const rect = timelineRef.current.getBoundingClientRect();
@@ -2422,221 +2882,823 @@ export default function App() {
     setHoverTime(absoluteTime);
     setIsHovering(true);
   };
-
+  const location = useLocation();
+  const currentPath = location.pathname || "/";
+  const isBuilderPage = currentPath === "/" || currentPath.startsWith("/builder");
   const normalizedAuth = authStatus?.toLowerCase?.() || "";
-  const isLoggedIn = normalizedAuth.includes("logged in");
-  const isLoggingIn = normalizedAuth.includes("logging");
-  const authClass = isLoggedIn ? "auth-pill is-ready" : "auth-pill is-missing";
-  const authLabel = isLoggedIn ? "已登录" : isLoggingIn ? "登录中" : "未登录";
-
+  const isLoggedIn = normalizedAuth === "logged in";
+  const isLoggingIn = normalizedAuth === "logging in";
+  const isUnavailable = normalizedAuth === "unavailable";
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">Random Dance Generator</div>
-        <div className="topbar-actions">
-          <div className={authClass}>{authLabel}</div>
-          <div className="topbar-buttons">
-            <button onClick={handleLogin}>B站登录</button>
-            <button onClick={handleReload}>刷新界面</button>
+        <div className="topbar-left">
+          <div className="brand">Random Dance Generator</div>
+          <div className="topbar-nav">
+            <NavLink
+              to="/builder"
+              className={({ isActive }) =>
+                "nav-button" + (isActive ? " is-active" : "")
+              }
+            >
+              卡片制作
+            </NavLink>
+            <NavLink
+              to="/manage"
+              className={({ isActive }) =>
+                "nav-button" + (isActive ? " is-active" : "")
+              }
+            >
+              卡片管理
+            </NavLink>
+            <NavLink
+              to="/community"
+              className={({ isActive }) =>
+                "nav-button" + (isActive ? " is-active" : "")
+              }
+            >
+              卡片社区
+            </NavLink>
           </div>
         </div>
-      </header>
-      <main className="workspace">
-        <section className="panel panel-sources">
-          <form className="search-form" onSubmit={handleSearchSubmit}>
-            <div className="search-input-wrap">
-              <input
-                className="search-input"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder={searchSuggestion}
-              />
+        <div className="topbar-actions">
+          <div className="topbar-login">
+            <div className="login-card">
+              <div className="login-block">
+                <div className="login-label">
+                  <span className="bili-logo" aria-label="Bilibili" />
+                </div>
+              {isLoggedIn ? (
+                <div className="login-status is-bili">已登录</div>
+              ) : (
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={handleLogin}
+                  disabled={isLoggingIn || isUnavailable}
+                >
+                  {isLoggingIn ? "登录中..." : isUnavailable ? "不可用" : "登录"}
+                </button>
+              )}
+              </div>
+              <div className="login-block">
+                <div className="login-label">社区</div>
+                {communitySession ? (
+                  <div className="login-status is-app">已登录</div>
+                ) : (
+                  <button type="button" className="ghost" onClick={openCommunityLogin}>
+                    登录
+                </button>
+              )}
+              </div>
             </div>
-            <button type="submit">搜索</button>
-          </form>
-          <div className="search-hint">点击结果加入预览。</div>
-          <div className="search-frame">
-            <webview
-              ref={searchWebviewRef}
-              src={searchUrl}
-              className={"search-webview" + (isSearchLoading ? " is-loading" : "")}
-              style={{ width: "100%", height: "100%", minHeight: "100%" }}
-              allowpopups="true"
-              httpreferrer="https://www.bilibili.com"
-              useragent={bilibiliUserAgent}
-              partition="persist:bili"
-            />
-            {showSearchOverlay ? (
-              <div className="search-overlay">
-                <div className="search-overlay-spinner" />
-                <div className="search-overlay-text">加载中...</div>
+          </div>
+          <div className="topbar-utils">
+            <button type="button" className="ghost" onClick={handleReload}>
+              刷新
+            </button>
+            {communitySession || isLoggedIn ? (
+              <div className="profile-avatar-wrap is-active">
+                <img
+                  className="profile-avatar"
+                  src={placeholderAvatar}
+                  alt="avatar"
+                />
+                <div className="profile-menu">
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={handleCommunityLogout}
+                    disabled={!communitySession}
+                  >
+                    登出社区
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={handleBiliLogout}
+                    disabled={!isLoggedIn}
+                  >
+                    登出B站                  </button>
+                </div>
               </div>
             ) : null}
           </div>
-        </section>
-
-        <section className="panel panel-preview">
-          <div className="preview-head">
-            <div className="preview-title">
-              <h2>{activeCard?.title || "预览"}</h2>
-              <div className="preview-range">
-                {activeCard
-                  ? `${formatTime(rangeStart)} - ${formatTime(rangeEnd)}`
-                  : "--:-- - --:--"}
-              </div>
-            </div>
-          </div>
-          {activeCard ? (
-            <div className="preview-body">
-              {previewUrl ? (
-                <webview
-                  key={`${activeId || "preview"}-${previewEpoch}`}
-                  ref={webviewRef}
-                  src={previewUrl}
-                  className={"player-webview embed-player " + (isLoadingPreview ? "is-loading" : "")}
-                  style={{ width: "100%", height: "100%", minHeight: "100%" }}
-                  allowpopups="true"
-                  httpreferrer="https://www.bilibili.com"
-                  useragent={bilibiliUserAgent}
-                  partition="persist:bili"
-                  preload={window.env?.bilibiliPagePreload}
+        </div>
+      </header>
+      <main className={isBuilderPage ? "workspace" : "workspace workspace--single"}>
+  <Routes>
+    <Route path="/" element={<Navigate to="/builder" replace />} />
+    <Route
+      path="/builder"
+      element={
+        <>
+          <section className="panel panel-sources">
+            <form className="search-form" onSubmit={handleSearchSubmit}>
+              <div className="search-input-wrap">
+                <input
+                  className="search-input"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder={searchSuggestion}
                 />
-              ) : (
-                <div className="placeholder">解析后播放。</div>
-              )}
-              {isLoadingPreview || isResolving ? (
-                <div className="preview-loading">
-                  <div className="preview-loading-spinner" />
-                  <div className="preview-loading-text">预览加载中...</div>
-                </div>
-              ) : null}
-              {previewError && !isLoadingPreview && !isResolving ? (
-                <div className="preview-error">
-                  <button onClick={handleResolvePreview}>重试预览</button>
+              </div>
+              <button type="submit">搜索</button>
+            </form>
+            <div className="search-hint">点击结果加入预览。</div>
+            <div className="search-frame">
+              <webview
+                ref={searchWebviewRef}
+                src={searchUrl}
+                className={"search-webview" + (isSearchLoading ? " is-loading" : "")}
+                style={{ width: "100%", height: "100%", minHeight: "100%" }}
+                allowpopups="true"
+                httpreferrer="https://www.bilibili.com"
+                useragent={bilibiliUserAgent}
+                partition="persist:bili"
+              />
+              {showSearchOverlay ? (
+                <div className="search-overlay">
+                  <div className="search-overlay-spinner" />
+                  <div className="search-overlay-text">加载中...</div>
                 </div>
               ) : null}
             </div>
-          ) : (
-            <div className="placeholder">左侧搜索栏点击加入预览。</div>
-          )}
-        </section>
-
-        <section className="panel panel-editor">
-          <div className="editor-section">
-            <div className="builder-flow">
-              <div className="builder-stage">
-                <div className="builder-stage-title">
-                  <span className="builder-step">01</span>
-                  <span>同步预览信息</span>
+          </section>
+          <section className="panel panel-preview">
+            <div className="preview-head">
+              <div className="preview-title">
+                <h2>{activeCard?.title || "预览"}</h2>
+                <div className="preview-range">
+                  {activeCard
+                    ? `${formatTime(rangeStart)} - ${formatTime(rangeEnd)}`
+                    : "--:-- - --:--"}
                 </div>
-                <div className="builder-grid">
-                  <div className="builder-card">
-                    <div className="builder-label">预览区间</div>
-                    <div className="builder-range">
-                      {formatTime(rangeStart)} - {formatTime(rangeEnd)}
-                    </div>
-                    <div className="builder-hint">拖动预览区间滑块同步。</div>
+              </div>
+            </div>
+            {activeCard ? (
+              <div className="preview-body">
+                {previewUrl ? (
+                  <webview
+                    key={`${activeId || "preview"}-${previewEpoch}`}
+                    ref={webviewRef}
+                    src={previewUrl}
+                    className={"player-webview embed-player " + (isLoadingPreview ? "is-loading" : "")}
+                    style={{ width: "100%", height: "100%", minHeight: "100%" }}
+                    allowpopups="true"
+                    httpreferrer="https://www.bilibili.com"
+                    useragent={bilibiliUserAgent}
+                    partition="persist:bili"
+                    preload={window.env?.bilibiliPagePreload}
+                  />
+                ) : (
+                  <div className="placeholder">解析后播放。</div>
+                )}
+                {isLoadingPreview || isResolving ? (
+                  <div className="preview-loading">
+                    <div className="preview-loading-spinner" />
+                    <div className="preview-loading-text">预览加载中...</div>
                   </div>
-
-                  <div className="builder-card">
-                    <div className="builder-label">标签来源</div>
-                    <div className="builder-source">
-                      {activeCard ? (
-                        <div className="builder-source-row">
-                          <div className="builder-source-title">
-                            {activeCard.title || "未命名"}
+                ) : null}
+                {previewError && !isLoadingPreview && !isResolving ? (
+                  <div className="preview-error">
+                    <button onClick={handleResolvePreview}>重试预览</button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="placeholder">点击左侧搜索栏结果加入预览。</div>
+            )}
+          </section>
+          <section className="panel panel-editor">
+            <div className="editor-section">
+              <div className="builder-flow">
+                <div className="builder-stage">
+                  <div className="builder-stage-title">
+                    <span className="builder-step">01</span>
+                    <span>同步预览信息</span>
+                  </div>
+                  <div className="builder-grid builder-grid--preview">
+                    <div className="builder-card">
+                      <div className="builder-label">预览区间</div>
+                      <div className="builder-range">
+                        {formatTime(rangeStart)} - {formatTime(rangeEnd)}
+                      </div>
+                      <div className="builder-hint">拖动预览区间滑块同步。</div>
+                      <div className="builder-hint">
+                        标签来源：{activeCard ? activeCard.bvid || "未知BV" : "未选择"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="builder-stage">
+                  <div className="builder-stage-title">
+                    <span className="builder-step">02</span>
+                    <span>设置标签</span>
+                  </div>
+                  <div className="builder-grid builder-grid--tags">
+                    <div className="builder-card">
+                      <div className="tag-hint">搜索标签用于卡片社区检索展示。</div>
+                      <div className="tag-input-row">
+                        <input
+                          value={tagInput}
+                          onChange={(event) => setTagInput(event.target.value)}
+                          onKeyDown={handleTagKeyDown}
+                          placeholder="添加标签，回车确认"
+                        />
+                        <button type="button" className="ghost" onClick={handleAddTag}>
+                          添加
+                        </button>
+                      </div>
+                      <div className="tag-chip-list">
+                        {tagList.length ? (
+                          tagList.map((tag) => (
+                            <span key={tag} className="tag-chip">
+                              <span className="tag-chip-text">#{tag}</span>
+                              <button type="button" onClick={() => handleRemoveTag(tag)}>
+                                ×
+                              </button>
+                            </span>
+                          ))
+                        ) : (
+                          <div className="tag-empty">暂无标签。</div>
+                        )}
+                      </div>
+                      <div className="tag-hint">搜索标签用于卡片社区检索展示。</div>
+                    </div>
+                    <div className="builder-card">
+                      <div className="builder-label">剪辑标签</div>
+                      {clipTagGroups.map((group) => (
+                        <div key={group.label} className="clip-tag-group">
+                          <div className="clip-tag-title">
+                            {group.label}
+                            {group.single ? "（单选）" : ""}
                           </div>
-                          <div className="builder-source-meta">
-                            {activeCard.bvid || "未知BV"}
+                          <div className="clip-tag-list">
+                            {group.options.map((tag) => {
+                              const isSelected = clipTags.includes(tag);
+                              return (
+                                <button
+                                  key={tag}
+                                  type="button"
+                                  className={"clip-tag" + (isSelected ? " is-selected" : "")}
+                                  onClick={() => toggleClipTag(group, tag)}
+                                >
+                                  {tag}
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
-                      ) : (
-                        <div className="builder-empty">选择结果以同步。</div>
-                      )}
+                      ))}
+                    </div>
+                    <div className="builder-card">
+                      <div className="builder-label">备注</div>
+                      <textarea
+                        className="builder-textarea"
+                        value={form.notes}
+                        onChange={(event) =>
+                          setForm((prev) => ({ ...prev, notes: event.target.value }))
+                        }
+                        placeholder="备注"
+                      />
+                      <div className="builder-label">可见性</div>
+                      <select
+                        className="builder-select"
+                        value={form.visibility}
+                        onChange={(event) =>
+                          setForm((prev) => ({ ...prev, visibility: event.target.value }))
+                        }
+                      >
+                        <option value="private">私有</option>
+                        <option value="public">公开</option>
+                      </select>
+                      <div className="builder-hint">私有仅自己可见，公开可跨设备同步。</div>
                     </div>
                   </div>
                 </div>
               </div>
-
-              <div className="builder-stage">
-                <div className="builder-stage-title">
-                  <span className="builder-step">02</span>
-                  <span>设置标签</span>
-                </div>
-                <div className="builder-grid builder-grid--tags">
-                  <div className="builder-card">
-                    <div className="builder-label">搜索标签</div>
-                    <div className="tag-input-row">
-                      <input
-                        value={tagInput}
-                        onChange={(event) => setTagInput(event.target.value)}
-                        onKeyDown={handleTagKeyDown}
-                        placeholder="添加搜索标签，回车确认"
-                      />
-                      <button
-                        type="button"
-                        className="ghost"
-                        onClick={handleAddTag}
-                      >添加</button>
-                    </div>
-                    <div className="tag-chip-list">
-                      {tagList.length ? (
-                        tagList.map((tag) => (
-                          <span key={tag} className="tag-chip">
-                            <span className="tag-chip-text">#{tag}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveTag(tag)}
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))
-                      ) : (
-                        <div className="tag-empty">暂无标签。</div>
-                      )}
-                    </div>
-                    <div className="tag-hint">搜索标签用于社区检索展示。</div>
-                  </div>
-
-                  <div className="builder-card">
-                    <div className="builder-label">剪辑标签</div>
-                    {clipTagGroups.map((group) => (
-                      <div key={group.label} className="clip-tag-group">
-                        <div className="clip-tag-title">
-                          {group.label}
-                          {group.single ? "（单选）" : ""}
+              <div className="builder-actions">
+                <button className="primary" onClick={handleAddCard}>
+                  生成卡片
+                </button>
+                {communityStatus.error ? (
+                  <div className="community-error">{communityStatus.error}</div>
+                ) : null}
+                {saveNotice ? <div className="save-notice">{saveNotice}</div> : null}
+                <div className="save-list">
+                  <div className="save-title">最近生成卡片</div>
+                  {cards.length ? (
+                    <div className="save-items">
+                      {cards.slice(0, 3).map((card) => (
+                        <div key={card.id} className="save-item">
+                          <div className="save-item-title">{card.title || "未命名卡片"}</div>
+                          <div className="save-item-meta">
+                            {card.bvid} 路 {formatTime(card.start)}-{formatTime(card.end)}
+                          </div>
                         </div>
-                        <div className="clip-tag-list">
-                          {group.options.map((tag) => {
-                            const isSelected = clipTags.includes(tag);
-                            return (
-                              <button
-                                key={tag}
-                                type="button"
-                                className={
-                                  "clip-tag" + (isSelected ? " is-selected" : "")
-                                }
-                                onClick={() => toggleClipTag(group, tag)}
-                              >
-                                {tag}
-                              </button>
-                            );
-                          })}
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="save-empty">暂无记录</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        </>
+      }
+    />
+    <Route
+      path="/manage"
+      element={
+        <section className="panel panel-community">
+          <div className="manage-layout">
+            <aside className="manage-sidebar">
+              <div className="manage-section">
+                <div className="manage-section-title">账号</div>
+                {communitySession ? (
+                  <div className="community-row">
+                    <div>
+                      <div className="community-title">已登录</div>
+                      <div className="community-meta">{communitySession.username}</div>
+                    </div>
+                    <button type="button" className="ghost" onClick={handleCommunityLogout}>
+                      退出                    </button>
+                  </div>
+                ) : (
+                  <div className="manage-empty">
+                    <div className="community-meta">未登录社区账号</div>
+                    <div className="manage-row-actions">
+                      <button type="button" className="ghost" onClick={openCommunityLogin}>
+                        登录
+                      </button>
+                      <button type="button" className="ghost" onClick={openCommunityRegister}>
+                        注册
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {communityStatus.error ? (
+                  <div className="community-error">{communityStatus.error}</div>
+                ) : null}
+              </div>
+              <div className="manage-section">
+                <div className="manage-section-title">筛选</div>
+                <div className="manage-filters">
+                  <button
+                    type="button"
+                    className={"manage-filter" + (manageFilter === "all" ? " is-active" : "")}
+                    onClick={() => setManageFilter("all")}
+                  >
+                    全部
+                  </button>
+                  <button
+                    type="button"
+                    className={"manage-filter" + (manageFilter === "public" ? " is-active" : "")}
+                    onClick={() => setManageFilter("public")}
+                  >
+                    公开
+                  </button>
+                  <button
+                    type="button"
+                    className={"manage-filter" + (manageFilter === "private" ? " is-active" : "")}
+                    onClick={() => setManageFilter("private")}
+                  >
+                    私有
+                  </button>
+                </div>
+              </div>
+            </aside>
+            <div className="manage-content">
+              {!communitySession ? (
+                <div className="manage-alert">
+                  需要登录社区账号才能管理卡片。
+                  <button type="button" className="ghost" onClick={openCommunityLogin}>
+                    立即登录
+                  </button>
+                </div>
+              ) : null}
+              <div className="manage-toolbar">
+                <div className="manage-search">
+                  <input
+                    value={manageSearch}
+                    onChange={(event) => setManageSearch(event.target.value)}
+                    placeholder="搜索我的卡片"
+                  />
+                </div>
+                <div className="manage-actions">
+                  <button type="button" className="ghost" onClick={handleSelectAllManageTags}>
+                    全选                  </button>
+                  <button type="button" className="ghost" onClick={handleClearManageSelection}>
+                    清空
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => handleBulkVisibility("public")}
+                    disabled={!manageSelected.length}
+                  >
+                    批量公开
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => handleBulkVisibility("private")}
+                    disabled={!manageSelected.length}
+                  >
+                    批量私有
+                  </button>
+                </div>
+              </div>
+              <div className="manage-list manage-cards">
+                {filteredManageCards.length ? (
+                  filteredManageCards.map((card) => {
+                    const isVisible = visibleManageIds.includes(card.id);
+                    return (
+                    <div key={card.id} className="manage-card" data-card-id={card.id}>
+                      <div className="manage-card-head">
+                        <label className="manage-check">
+                          <input
+                            type="checkbox"
+                            checked={manageSelected.includes(card.id)}
+                            onChange={() => handleToggleManageSelect(card.id)}
+                          />
+                          <div className="manage-card-info">
+                            <div className="manage-card-title">{card.title || "未命名卡片"}</div>
+                            <div className="manage-card-meta">
+                              {card.bvid}
+                              {normalizeCardTags(card.tags).length
+                                ? " 路 " + normalizeCardTags(card.tags).slice(0, 3).join(" / ")
+                                : ""}
+                            </div>
+                          </div>
+                        </label>
+                        <div className={"manage-visibility " + card.visibility}>
+                          {card.visibility === "public" ? "公开" : "私有"}
                         </div>
                       </div>
-                    ))}
+                      <div
+                        className="manage-card-preview"
+                        onMouseEnter={() => {
+                          setHoveredManageId(card.id);
+                          setHoveredManageBvid(card.bvid);
+                          if (card.bvid && !coverMap[card.bvid] && !coverLoadingRef.current.has(card.bvid)) {
+                            requestCover(card.bvid, card.id, 'manage');
+                          }
+                          if (manageWebviewTimerRef.current) {
+                            clearTimeout(manageWebviewTimerRef.current);
+                          }
+                          manageWebviewTimerRef.current = setTimeout(() => {
+                            setShowManageWebviewId(card.id);
+                          }, 300);
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredManageId((prev) => (prev === card.id ? "" : prev));
+                          if (manageWebviewTimerRef.current) {
+                            clearTimeout(manageWebviewTimerRef.current);
+                          }
+                          manageWebviewTimerRef.current = null;
+                          setShowManageWebviewId("");
+                        }}
+                      >
+                        {isVisible && showManageWebviewId === card.id ? (
+                          <webview
+                            id={`manage-preview-${card.id}`}
+                            src={buildCardPreviewUrl({
+                              bvid: card.bvid,
+                              start: card.start
+                            })}
+                            className="card-preview-webview"
+                            allowpopups="true"
+                            httpreferrer="https://www.bilibili.com"
+                            useragent={bilibiliUserAgent}
+                            partition="persist:bili"
+                            preload={window.env?.bilibiliPagePreload}
+                            style={{ opacity: 0, transition: 'opacity 0.3s' }}
+                          />
+                        ) : coverMap[card.bvid] ? (
+                          <img
+                            src={coverMap[card.bvid]}
+                            alt={card.title || card.bvid}
+                            className="card-preview-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="preview-placeholder">
+                            {manageLoadingState.get(card.id)?.coverLoading ? (
+                              <div className="loading-indicator">
+                                <div className="spinner"></div>
+                                <div className="loading-text">
+                                  封面加载中...
+                                  <span className="loading-time" key={loadTick}>
+                                    {(getLoadingTime(card.id, 'cover') / 1000).toFixed(1)}s
+                                  </span>
+                                </div>
+                              </div>
+                            ) : hoveredManageId === card.id ? (
+                              <div className="loading-indicator">
+                                <div className="spinner"></div>
+                                <div className="loading-text">
+                                  播放器加载中...
+                                  <span className="loading-time" key={loadTick}>
+                                    {(getLoadingTime(card.id, 'webview') / 1000).toFixed(1)}s
+                                  </span>
+                                </div>
+                              </div>
+                            ) : '悬停预览'}
+                          </div>
+                        )}
+                        {manageLoadingState.get(card.id) && (
+                          <div className="loading-debug" key={loadTick}>
+                            <div>封面: {manageLoadingState.get(card.id).coverLoadTime ? manageLoadingState.get(card.id).coverLoadTime.toFixed(0) + 'ms' : manageLoadingState.get(card.id).coverLoading ? getLoadingTime(card.id, 'cover').toFixed(0) + 'ms' : 'N/A'}</div>
+                            <div>播放器: {manageLoadingState.get(card.id).webviewLoadTime ? manageLoadingState.get(card.id).webviewLoadTime.toFixed(0) + 'ms' : manageLoadingState.get(card.id).webviewLoading ? getLoadingTime(card.id, 'webview').toFixed(0) + 'ms' : 'N/A'}</div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="manage-card-footer">
+                        <div className="manage-range">
+                          {formatTime(card.start)}-{formatTime(card.end)}
+                        </div>
+                        <div className="manage-row-actions">
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => handlePreviewExternalCard(card)}
+                          >
+                            预览
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => handleToggleCardVisibility(card)}
+                          >
+                            {card.visibility === "public" ? "转私有" : "转公开"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                  })
+                ) : (
+                  <div className="tag-empty">暂无卡片。</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      }
+    />
+    <Route
+      path="/community"
+      element={
+        <section className="panel panel-community">
+          <div className="builder-flow">
+            <div className="builder-stage">
+              <div className="builder-stage-title">
+                <span className="builder-step">01</span>
+                <span>社区搜索</span>
+              </div>
+              <div className="builder-grid builder-grid--tags">
+                <div className="builder-card">
+                  <div className="builder-label">发现卡片</div>
+                  {!communitySession ? (
+                    <div className="manage-alert">
+                      登录后可使用社区卡片。
+                      <button type="button" className="ghost" onClick={openCommunityLogin}>
+                        登录
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="community-search">
+                    <input
+                      className="community-input"
+                      value={communitySearchQuery}
+                      onChange={(event) => setCommunitySearchQuery(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          refreshCommunitySearch();
+                        }
+                      }}
+                    placeholder="搜索社区卡片"
+                    />
+                    <select
+                      className="community-select"
+                      value={communitySearchSort}
+                      onChange={(event) => setCommunitySearchSort(event.target.value)}
+                    >
+                      <option value="latest">最新</option>
+                      <option value="oldest">最旧</option>
+                    </select>
+                    <button type="button" className="ghost" onClick={refreshCommunitySearch}>
+                      搜索
+                    </button>
+                  </div>
+                  <div className="community-list">
+                    {communityCardResults.length ? (
+                      communityCardResults.map((card) => {
+                        const isVisible = visibleCommunityIds.includes(card.id);
+                        return (
+                        <div key={card.id} className="community-card" data-card-id={card.id}>
+                          <div
+                            className="community-preview"
+                            onMouseEnter={() => {
+                              setHoveredCommunityId(card.id);
+                              setHoveredCommunityBvid(card.bvid);
+                              if (card.bvid && !coverMap[card.bvid] && !coverLoadingRef.current.has(card.bvid)) {
+                                requestCover(card.bvid, card.id, 'community');
+                              }
+                              if (communityWebviewTimerRef.current) {
+                                clearTimeout(communityWebviewTimerRef.current);
+                              }
+                              communityWebviewTimerRef.current = setTimeout(() => {
+                                setShowCommunityWebviewId(card.id);
+                              }, 300);
+                            }}
+                            onMouseLeave={() => {
+                              setHoveredCommunityId((prev) => (prev === card.id ? "" : prev));
+                              if (communityWebviewTimerRef.current) {
+                                clearTimeout(communityWebviewTimerRef.current);
+                              }
+                              communityWebviewTimerRef.current = null;
+                              setShowCommunityWebviewId("");
+                            }}
+                          >
+                          {isVisible && showCommunityWebviewId === card.id ? (
+                              <webview
+                                id={`community-preview-${card.id}`}
+                                src={buildCardPreviewUrl({
+                                  bvid: card.bvid,
+                                  start: card.start
+                                })}
+                                className="card-preview-webview"
+                                allowpopups="true"
+                                httpreferrer="https://www.bilibili.com"
+                                useragent={bilibiliUserAgent}
+                                partition="persist:bili"
+                                preload={window.env?.bilibiliPagePreload}
+                                style={{ opacity: 0, transition: 'opacity 0.3s' }}
+                              />
+                            ) : coverMap[card.bvid] ? (
+                              <img
+                                src={coverMap[card.bvid]}
+                                alt={card.title || card.bvid}
+                                className="card-preview-cover"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="preview-placeholder">
+                                {communityLoadingState.get(card.id)?.coverLoading ? (
+                                  <div className="loading-indicator">
+                                    <div className="spinner"></div>
+                                    <div className="loading-text">
+                                      封面加载中...
+                                      <span className="loading-time" key={loadTick}>
+                                        {(getCommunityLoadingTime(card.id, 'cover') / 1000).toFixed(1)}s
+                                        </span>
+                                    </div>
+                                  </div>
+                                ) : hoveredCommunityId === card.id ? (
+                                  <div className="loading-indicator">
+                                    <div className="spinner"></div>
+                                    <div className="loading-text">
+                                      播放器加载中...
+                                      <span className="loading-time" key={loadTick}>
+                                        {(getCommunityLoadingTime(card.id, 'webview') / 1000).toFixed(1)}s
+                                        </span>
+                                    </div>
+                                  </div>
+                                ) : '悬停预览'}
+                              </div>
+                            )}
+                            {communityLoadingState.get(card.id) && (
+                              <div className="loading-debug" key={loadTick}>
+                                <div>封面: {communityLoadingState.get(card.id).coverLoadTime ? communityLoadingState.get(card.id).coverLoadTime.toFixed(0) + 'ms' : communityLoadingState.get(card.id).coverLoading ? getCommunityLoadingTime(card.id, 'cover').toFixed(0) + 'ms' : 'N/A'}</div>
+                                <div>播放器: {communityLoadingState.get(card.id).webviewLoadTime ? communityLoadingState.get(card.id).webviewLoadTime.toFixed(0) + 'ms' : communityLoadingState.get(card.id).webviewLoading ? getCommunityLoadingTime(card.id, 'webview').toFixed(0) + 'ms' : 'N/A'}</div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="community-cover">
+                            <div className="community-cover-title">
+                              {card.title || "未命名卡片"}
+                            </div>
+                            <div className="community-cover-sub">
+                              {card.bvid} 路 {formatTime(card.start)}-{formatTime(card.end)}
+                            </div>
+                          </div>
+                          <div className="community-card-body">
+                            <div className="community-card-meta">
+                              <span className="community-chip">
+                                {normalizeCardTags(card.tags).slice(0, 3).join(" / ") || "无标签"}
+                              </span>
+                            </div>
+                            <div className="community-item-actions">
+                              <button
+                                type="button"
+                                className="ghost"
+                                onClick={() => handleApplyCardTags(card)}
+                              >
+                                套用标签
+                              </button>
+                              <button
+                                type="button"
+                                className="ghost"
+                                onClick={() => handlePreviewExternalCard(card)}
+                              >
+                                预览
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                      })
+                    ) : (
+                      <div className="tag-empty">暂无结果。</div>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
-            <div className="builder-actions">
-              <button className="primary" onClick={handleAddCard}>生成标签</button>
+          </div>
+        </section>
+      }
+    />
+  </Routes>
+      </main>
+      {showCommunityAuth ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">
+                {communityAuthMode === "register" ? "注册社区账号" : "社区账号登录"}
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setShowCommunityAuth(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="field">
+                <label>账号</label>
+                <input
+                  value={communityLogin.username}
+                  onChange={(event) =>
+                    setCommunityLogin((prev) => ({
+                      ...prev,
+                      username: event.target.value
+                    }))
+                  }
+                  placeholder="社区账号"
+                />
+              </div>
+              <div className="field">
+                <label>密码</label>
+                <input
+                  type="password"
+                  value={communityLogin.password}
+                  onChange={(event) =>
+                    setCommunityLogin((prev) => ({
+                      ...prev,
+                      password: event.target.value
+                    }))
+                  }
+                  placeholder={communityAuthMode === "register" ? "至少 4 位" : "密码"}
+                />
+              </div>
+              {communityStatus.error ? (
+                <div className="community-error">{communityStatus.error}</div>
+              ) : null}
+            </div>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() =>
+                  setCommunityAuthMode((prev) => (prev === "login" ? "register" : "login"))
+                }
+              >
+                {communityAuthMode === "register" ? "去登录" : "去注册"}
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={
+                  communityAuthMode === "register"
+                    ? handleCommunityRegister
+                    : handleCommunityLogin
+                }
+                disabled={communityStatus.loading}
+              >
+                {communityAuthMode === "register" ? "注册" : "登录"}
+              </button>
             </div>
           </div>
-
-        </section>
-      </main>
+        </div>
+      ) : null}
     </div>
   );
 }

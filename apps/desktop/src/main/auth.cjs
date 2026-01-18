@@ -51,7 +51,23 @@ async function clearRawCookie() {
   if (fs.existsSync(filePath)) {
     await fs.promises.unlink(filePath);
   }
+  const cookieFilePath = getCookieFilePath();
+  if (fs.existsSync(cookieFilePath)) {
+    await fs.promises.unlink(cookieFilePath);
+  }
   return true;
+}
+
+async function clearBilibiliSession() {
+  const store = session.fromPartition(BILI_PARTITION);
+  try {
+    await store.clearStorageData({
+      storages: ["cookies", "localstorage", "cachestorage", "indexdb"],
+      origins: ["https://www.bilibili.com", "https://passport.bilibili.com"]
+    });
+  } catch {
+    await store.clearStorageData({ storages: ["cookies"] });
+  }
 }
 
 async function getBilibiliCookies(store) {
@@ -66,21 +82,39 @@ async function applyRawCookieToPartition(rawCookie) {
   const normalized = (rawCookie || "").trim();
   if (!normalized) return;
   const store = session.fromPartition(BILI_PARTITION);
+  const existing = await Promise.all([
+    store.cookies.get({ domain: ".bilibili.com" }),
+    store.cookies.get({ domain: "bilibili.com" })
+  ]);
+  const existingByName = new Map();
+  existing.flat().forEach((cookie) => {
+    if (!existingByName.has(cookie.name)) {
+      existingByName.set(cookie.name, cookie);
+    }
+  });
   const pairs = normalized.split(";").map((part) => part.trim()).filter(Boolean);
   await Promise.all(
-    pairs.map((pair) => {
+    pairs.map(async (pair) => {
       const index = pair.indexOf("=");
       if (index <= 0) return Promise.resolve();
       const name = pair.slice(0, index).trim();
       const value = pair.slice(index + 1).trim();
       if (!name) return Promise.resolve();
-      return store.cookies.set({
-        url: "https://www.bilibili.com/",
-        domain: ".bilibili.com",
-        path: "/",
-        name,
-        value
-      });
+      const current = existingByName.get(name);
+      if (current?.httpOnly) return Promise.resolve();
+      try {
+        await store.cookies.set({
+          url: "https://www.bilibili.com/",
+          domain: ".bilibili.com",
+          path: "/",
+          name,
+          value
+        });
+      } catch (err) {
+        const message = String(err?.message || "");
+        if (message.includes("EXCLUDE_OVERWRITE_HTTP_ONLY")) return;
+        throw err;
+      }
     })
   );
 }
@@ -119,15 +153,27 @@ async function loginWithQr() {
 
     loginWindow.on("closed", () => {
       clearInterval(timer);
-      reject(new Error("Login window closed before cookies were detected."));
+      resolve({ ok: false, cancelled: true });
     });
   });
 }
 
-function getAuthStatus() {
+async function getAuthStatus() {
   const filePath = getCookieFilePath();
   const exists = fs.existsSync(filePath);
-  return { ok: true, cookiePath: exists ? filePath : "" };
+  if (!exists) {
+    return { ok: true, cookiePath: "" };
+  }
+  const store = session.fromPartition(BILI_PARTITION);
+  const cookies = await getBilibiliCookies(store);
+  const sess = cookies.find((cookie) => cookie.name === "SESSDATA");
+  if (!sess) {
+    return { ok: true, cookiePath: "" };
+  }
+  if (sess.expirationDate && sess.expirationDate <= Date.now() / 1000) {
+    return { ok: true, cookiePath: "" };
+  }
+  return { ok: true, cookiePath: filePath };
 }
 
 module.exports = {
@@ -137,6 +183,7 @@ module.exports = {
   setRawCookie,
   getRawCookie,
   clearRawCookie,
-  applyRawCookieToPartition
+  applyRawCookieToPartition,
+  clearBilibiliSession
 };
 

@@ -961,7 +961,8 @@ async function getVideoInfo({ bvid, cookiePath, rawCookie }) {
       title: cached.title,
       duration: cached.duration,
       aid: cached.aid,
-      cid: cached.cid
+      cid: cached.cid,
+      pic: cached.pic
     };
   }
   const headers = buildHeaderObject(rawCookie, cookiePath);
@@ -975,8 +976,9 @@ async function getVideoInfo({ bvid, cookiePath, rawCookie }) {
   const duration = Number(data.duration) || 0;
   const aid = data.aid ? String(data.aid) : "";
   const cid = data.cid ? String(data.cid) : "";
-  metaCache.set(bvid, { title, duration, aid, cid, timestamp: Date.now() });
-  return { title, duration, aid, cid };
+  const pic = data.pic || cached?.pic || "";
+  metaCache.set(bvid, { title, duration, aid, cid, pic, timestamp: Date.now() });
+  return { title, duration, aid, cid, pic };
 }
 
 async function safeResolveMeta({ bvid, cookiePath, rawCookie }) {

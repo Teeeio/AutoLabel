@@ -6,9 +6,10 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm-run-all -p dev:webui dev:desktop",
+    "dev": "npm-run-all -p dev:webui dev:desktop dev:server",
     "dev:webui": "npm --workspace apps/webui run dev",
     "dev:desktop": "npm --workspace apps/desktop run dev",
+    "dev:server": "npm --workspace apps/server run dev",
     "build": "npm run build:webui && npm run build:desktop",
     "build:webui": "npm --workspace apps/webui run build",
     "build:desktop": "npm --workspace apps/desktop run build"

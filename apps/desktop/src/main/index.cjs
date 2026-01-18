@@ -17,7 +17,8 @@ const {
   setRawCookie,
   getRawCookie,
   clearRawCookie,
-  applyRawCookieToPartition
+  applyRawCookieToPartition,
+  clearBilibiliSession
 } = require("./auth.cjs");
 
 protocol.registerSchemesAsPrivileged([
@@ -206,6 +207,12 @@ ipcMain.handle("auth:cookie:set", async (_event, payload) => {
 
 ipcMain.handle("auth:cookie:clear", async () => {
   await clearRawCookie();
+  return { ok: true };
+});
+
+ipcMain.handle("auth:logout", async () => {
+  await clearRawCookie();
+  await clearBilibiliSession();
   return { ok: true };
 });
 
