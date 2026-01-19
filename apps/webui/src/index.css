@@ -2663,7 +2663,8 @@ body {
   background: #ffffff;
   border-radius: 16px;
   padding: 18px;
-  width: min(420px, 100%);
+  width: min(900px, 100%);
+  max-width: 95vw;
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
   display: flex;
   flex-direction: column;
@@ -2694,12 +2695,51 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: 70vh;
+  overflow-y: auto;
 }
 
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.detail-content {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.detail-preview-wrapper {
+  flex-shrink: 0;
+  min-width: 550px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-preview {
+  position: relative;
+  width: 550px;
+  height: 420px;
+  background: #0b0f1a;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.detail-preview .preview-body {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: #0b0f1a;
+}
+
+.detail-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .detail-section {

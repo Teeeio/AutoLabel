@@ -196,6 +196,8 @@ export default function App() {
   const [webviewManageIds, setWebviewManageIds] = useState(new Set());
   const [webviewCommunityIds, setWebviewCommunityIds] = useState(new Set());
   const [detailCard, setDetailCard] = useState(null);
+  const [detailWebviewLoading, setDetailWebviewLoading] = useState(false);
+  const [detailWebviewLoadStartTime, setDetailWebviewLoadStartTime] = useState(Date.now());
   const [hoveredManageId, setHoveredManageId] = useState("");
   const [hoveredCommunityId, setHoveredCommunityId] = useState("");
   const [hoveredManageBvid, setHoveredManageBvid] = useState("");
@@ -248,6 +250,7 @@ export default function App() {
   const volumeRef = useRef(volume);
   const muteRef = useRef(isMuted);
   const rateRef = useRef(playbackRate);
+  const detailWebviewKeyRef = useRef(0);
   const dashRef = useRef({
     active: false,
     info: null,
@@ -715,6 +718,90 @@ export default function App() {
       });
     };
   }, [webviewCommunityIds, communityLoadingState, communityCardResults]);
+
+  // 初始化详情页 webview
+  useEffect(() => {
+    if (!detailCard) return;
+
+    // 设置加载状态和开始时间
+    setDetailWebviewLoading(true);
+    setDetailWebviewLoadStartTime(Date.now());
+
+    const webviewId = `detail-preview-${detailCard.bvid}`;
+    const webview = document.getElementById(webviewId);
+    if (!webview) return;
+
+    const handler = () => {
+      console.log('Detail webview dom-ready');
+
+      // 修复webview内部iframe高度
+      patchWebviewIframeHeight(webview);
+
+      // 设置加载完成状态
+      setDetailWebviewLoading(false);
+
+      const startTime = Number.isFinite(detailCard.start) ? detailCard.start : 0;
+      const endTime = Number.isFinite(detailCard.end) ? detailCard.end : undefined;
+
+      // 初始化webview：跳转到start位置并暂停
+      const initializeVideo = () => {
+        // 检查 webview 是否仍然存在于 DOM 中
+        const currentWebview = document.getElementById(webviewId);
+        if (!currentWebview) {
+          console.log('Detail webview no longer exists, skipping initialization');
+          return;
+        }
+
+        currentWebview.executeJavaScript(`
+          (function() {
+            const video = document.querySelector('video');
+            const player = document.querySelector('#bilibili-player');
+
+            if (video) {
+              // 设置起始位置
+              video.currentTime = ${startTime};
+              video.pause().catch(e => console.log('Auto-pause failed:', e));
+
+              // 添加播放范围限制（循环播放）
+              video.addEventListener('timeupdate', function() {
+                // 循环播放：到达结束时回到起始位置
+                if (${endTime} !== undefined && video.currentTime >= ${endTime}) {
+                  video.currentTime = ${startTime};
+                  // 如果视频正在播放，继续播放
+                  if (!video.paused) {
+                    video.play().catch(e => console.log('Auto-loop play failed:', e));
+                  }
+                }
+              });
+            }
+
+            if (player) {
+              // 只禁用控制栏的点击，保留视频区域的交互
+              const controlWrap = player.querySelector('.bpx-player-control-wrap');
+              if (controlWrap) {
+                controlWrap.style.pointerEvents = 'none';
+              }
+            }
+
+            return true;
+          })();
+        `).catch((err) => {
+          console.error('Failed to initialize detail webview:', err);
+        });
+      };
+
+      // 先尝试初始化，如果失败则延迟重试
+      setTimeout(initializeVideo, 500);
+      setTimeout(initializeVideo, 2000);
+    };
+
+    webview.addEventListener('dom-ready', handler);
+
+    return () => {
+      webview.removeEventListener('dom-ready', handler);
+    };
+  }, [detailCard, detailWebviewKeyRef.current]);
+
   useEffect(() => {
     loadTimerRef.current = setInterval(() => {
       setLoadTick((prev) => prev + 1);
@@ -1966,12 +2053,15 @@ export default function App() {
   );
   const handleOpenCardDetail = useCallback(
     (card) => {
+      // 增加 key 以强制重新创建 webview
+      detailWebviewKeyRef.current += 1;
       setDetailCard(card);
     },
     []
   );
   const handleCloseDetail = useCallback(() => {
     setDetailCard(null);
+    setDetailWebviewLoading(false);
   }, []);
   const handleSetPoint = (field) => {
     if (!Number.isFinite(currentTime)) return;
@@ -2010,6 +2100,23 @@ export default function App() {
     }, 50);
     return () => clearTimeout(timer);
   }, [previewUrl]);
+
+  // 当切换回卡片制作页面时,重新修复webview高度
+  useEffect(() => {
+    if (!previewUrl || !activeId) return;
+    const view = webviewRef.current;
+    if (!view) return;
+
+    // 延迟多次尝试,确保webview已经完全加载
+    const timers = [
+      setTimeout(() => patchWebviewIframeHeight(view), 100),
+      setTimeout(() => patchWebviewIframeHeight(view), 500),
+      setTimeout(() => patchWebviewIframeHeight(view), 1000)
+    ];
+
+    return () => timers.forEach(t => clearTimeout(t));
+  }, [activeId, previewUrl]);
+
   useEffect(() => {
     if (!useEmbedHijack || !previewUrl) return;
     const view = webviewRef.current;
@@ -4001,34 +4108,70 @@ export default function App() {
               <button className="modal-close" onClick={handleCloseDetail}>×</button>
             </div>
             <div className="modal-body">
-              <div className="detail-section">
-                <div className="detail-label">标题</div>
-                <div className="detail-value">{detailCard.title || "未命名"}</div>
-              </div>
-              <div className="detail-section">
-                <div className="detail-label">BV号</div>
-                <div className="detail-value">{detailCard.bvid || "-"}</div>
-              </div>
-              <div className="detail-section">
-                <div className="detail-label">时间区间</div>
-                <div className="detail-value">
-                  {formatTime(detailCard.start)} - {formatTime(detailCard.end)}
-                </div>
-              </div>
-              {detailCard.tags && detailCard.tags.length > 0 && (
-                <div className="detail-section">
-                  <div className="detail-label">标签</div>
-                  <div className="detail-value">
-                    {normalizeCardTags(detailCard.tags).join(" / ")}
+              <div className="detail-content">
+                <div className="detail-preview-wrapper">
+                  <div className="detail-label">预览</div>
+                  <div className="detail-preview">
+                    <div className="preview-body" style={{ width: '100%', height: '100%' }}>
+                      <webview
+                        key={`detail-${detailCard.id}-${detailWebviewKeyRef.current}`}
+                        id={`detail-preview-${detailCard.bvid}`}
+                        data-detail-webview="true"
+                        src={`https://www.bilibili.com/video/${detailCard.bvid}`}
+                        className="player-webview embed-player"
+                        allowpopups="true"
+                        httpreferrer="https://www.bilibili.com"
+                        useragent={bilibiliUserAgent}
+                        partition="persist:bili"
+                        preload={window.env?.bilibiliPagePreload}
+                      />
+                      {detailWebviewLoading && (
+                        <div className="preview-overlay">
+                          <div className="loading-indicator">
+                            <div className="spinner"></div>
+                            <div className="loading-text">
+                              预览加载中...
+                              <span className="loading-time" key={loadTick}>
+                                {((Date.now() - (detailWebviewLoadStartTime || Date.now())) / 1000).toFixed(1)}s
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              )}
-              {detailCard.notes && (
-                <div className="detail-section">
-                  <div className="detail-label">备注</div>
-                  <div className="detail-value">{detailCard.notes}</div>
+                <div className="detail-info">
+                  <div className="detail-section">
+                    <div className="detail-label">标题</div>
+                    <div className="detail-value">{detailCard.title || "未命名"}</div>
+                  </div>
+                  <div className="detail-section">
+                    <div className="detail-label">BV号</div>
+                    <div className="detail-value">{detailCard.bvid || "-"}</div>
+                  </div>
+                  <div className="detail-section">
+                    <div className="detail-label">时间区间</div>
+                    <div className="detail-value">
+                      {formatTime(detailCard.start)} - {formatTime(detailCard.end)}
+                    </div>
+                  </div>
+                  {detailCard.tags && detailCard.tags.length > 0 && (
+                    <div className="detail-section">
+                      <div className="detail-label">标签</div>
+                      <div className="detail-value">
+                        {normalizeCardTags(detailCard.tags).join(" / ")}
+                      </div>
+                    </div>
+                  )}
+                  {detailCard.notes && (
+                    <div className="detail-section">
+                      <div className="detail-label">备注</div>
+                      <div className="detail-value">{detailCard.notes}</div>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
             <div className="modal-footer">
               <button className="primary" onClick={handleCloseDetail}>关闭</button>
