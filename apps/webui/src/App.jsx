@@ -209,6 +209,10 @@ export default function App() {
   const [isDraggingProgress, setIsDraggingProgress] = useState(false); // 跟踪是否正在拖动进度条
   const manageWebviewTimerRef = useRef(null);
   const communityWebviewTimerRef = useRef(null);
+
+  // 预加载所有卡片的webview标志
+  const [managePreloaded, setManagePreloaded] = useState(false);
+  const [communityPreloaded, setCommunityPreloaded] = useState(false);
   const [loadTick, setLoadTick] = useState(0);
   const loadTimerRef = useRef(null);
   const [showCommunityAuth, setShowCommunityAuth] = useState(false);
@@ -713,7 +717,8 @@ export default function App() {
         if (card) {
           const webview = document.getElementById(`community-preview-${card.bvid}`);
           if (webview) {
-            webview.style.opacity = '0';
+            // 移除事件监听器,不要设置opacity为0
+            // webview.style.opacity = '0'; // 移除这行,会导致黑屏
           }
         }
       });
@@ -3216,6 +3221,73 @@ export default function App() {
       previousPathRef.current = currentPath;
     }
   }, [location.pathname]);
+
+  // 预加载卡片管理的webview - 只预加载前10个
+  useEffect(() => {
+    // 只在卡片管理页面且未预加载时执行
+    if (location.pathname !== "/manage" && location.pathname !== "/") return;
+    if (managePreloaded || !cards.length) return;
+
+    // 延迟预加载,避免阻塞页面渲染
+    const timer = setTimeout(() => {
+      const newIds = new Set(webviewManageIds);
+      const newLoadingStates = new Map(manageLoadingState);
+
+      // 只预加载前10个卡片,避免同时加载太多导致黑屏
+      const preloadCount = Math.min(cards.length, 10);
+
+      for (let i = 0; i < preloadCount; i++) {
+        const card = cards[i];
+        if (!newIds.has(card.id)) {
+          newIds.add(card.id);
+          newLoadingStates.set(card.id, {
+            webviewLoading: true,
+            webviewStartTime: Date.now()
+          });
+        }
+      }
+
+      setWebviewManageIds(newIds);
+      setManageLoadingState(newLoadingStates);
+      setManagePreloaded(true);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [location.pathname, cards, managePreloaded]);
+
+  // 预加载社区卡片的webview - 只预加载前10个
+  useEffect(() => {
+    // 只在社区页面且未预加载时执行
+    if (location.pathname !== "/community") return;
+    if (communityPreloaded || !communityCardResults.length) return;
+
+    // 延迟预加载,避免阻塞页面渲染
+    const timer = setTimeout(() => {
+      const newIds = new Set(webviewCommunityIds);
+      const newLoadingStates = new Map(communityLoadingState);
+
+      // 只预加载前10个卡片,避免同时加载太多导致黑屏
+      const preloadCount = Math.min(communityCardResults.length, 10);
+
+      for (let i = 0; i < preloadCount; i++) {
+        const card = communityCardResults[i];
+        if (!newIds.has(card.id)) {
+          newIds.add(card.id);
+          newLoadingStates.set(card.id, {
+            webviewLoading: true,
+            webviewStartTime: Date.now()
+          });
+        }
+      }
+
+      setWebviewCommunityIds(newIds);
+      setCommunityLoadingState(newLoadingStates);
+      setCommunityPreloaded(true);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [location.pathname, communityCardResults, communityPreloaded]);
+
   const isLoggedIn = normalizedAuth === "logged in";
   const isLoggingIn = normalizedAuth === "logging in";
   const isUnavailable = normalizedAuth === "unavailable";
@@ -3681,35 +3753,11 @@ export default function App() {
                         onMouseEnter={() => {
                           setHoveredManageId(card.id);
                           setHoveredManageBvid(card.bvid);
-                          // hover时才创建webview
-                          if (!webviewManageIds.has(card.id)) {
-                            setWebviewManageIds(prev => new Set(prev).add(card.id));
-                            // 记录加载开始时间
-                            setManageLoadingState(prev => new Map(prev).set(card.id, {
-                              webviewLoading: true,
-                              webviewStartTime: Date.now()
-                            }));
-                          }
-                          // 清除之前的销毁定时器
-                          if (manageWebviewTimerRef.current) {
-                            clearTimeout(manageWebviewTimerRef.current);
-                            manageWebviewTimerRef.current = null;
-                          }
+                          // webview已经预加载,不需要再创建
                         }}
                         onMouseLeave={() => {
                           setHoveredManageId((prev) => (prev === card.id ? "" : prev));
-                          // 延迟1.5秒后销毁webview
-                          if (manageWebviewTimerRef.current) {
-                            clearTimeout(manageWebviewTimerRef.current);
-                          }
-                          manageWebviewTimerRef.current = setTimeout(() => {
-                            setWebviewManageIds(prev => {
-                              const newSet = new Set(prev);
-                              newSet.delete(card.id);
-                              return newSet;
-                            });
-                            manageWebviewTimerRef.current = null;
-                          }, 1500);
+                          // 不再销毁webview,保持预加载状态
                         }}
                       >
                         <div className="preview-container">
@@ -3954,35 +4002,11 @@ export default function App() {
                             onMouseEnter={() => {
                               setHoveredCommunityId(card.id);
                               setHoveredCommunityBvid(card.bvid);
-                              // hover时才创建webview
-                              if (!webviewCommunityIds.has(card.id)) {
-                                setWebviewCommunityIds(prev => new Set(prev).add(card.id));
-                                // 记录加载开始时间
-                                setCommunityLoadingState(prev => new Map(prev).set(card.id, {
-                                  webviewLoading: true,
-                                  webviewStartTime: Date.now()
-                                }));
-                              }
-                              // 清除之前的销毁定时器
-                              if (communityWebviewTimerRef.current) {
-                                clearTimeout(communityWebviewTimerRef.current);
-                                communityWebviewTimerRef.current = null;
-                              }
+                              // webview已经预加载,不需要再创建
                             }}
                             onMouseLeave={() => {
                               setHoveredCommunityId((prev) => (prev === card.id ? "" : prev));
-                              // 延迟1.5秒后销毁webview
-                              if (communityWebviewTimerRef.current) {
-                                clearTimeout(communityWebviewTimerRef.current);
-                              }
-                              communityWebviewTimerRef.current = setTimeout(() => {
-                                setWebviewCommunityIds(prev => {
-                                  const newSet = new Set(prev);
-                                  newSet.delete(card.id);
-                                  return newSet;
-                                });
-                                communityWebviewTimerRef.current = null;
-                              }, 1500);
+                              // 不再销毁webview,保持预加载状态
                             }}
                           >
                             <div className="preview-container">
