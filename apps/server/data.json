@@ -120,6 +120,28 @@
   },
   "cards": [
     {
+      "id": "c-1768816803388",
+      "userId": "u-1768665574378",
+      "title": "【Nowadays #7】μ's Nowadays",
+      "bvid": "BV1TerzBZE7E",
+      "start": 61.39797181321641,
+      "end": 95.46410589082583,
+      "tags": [
+        "LoveLive!",
+        "Love Live! series",
+        "μ's",
+        "Nowadays"
+      ],
+      "clipTags": [
+        "μ's"
+      ],
+      "bpm": "",
+      "notes": "",
+      "visibility": "private",
+      "createdAt": 1768816803388,
+      "updatedAt": 1768816803388
+    },
+    {
       "id": "c-1768668014225",
       "userId": "u-1768665574378",
       "title": "【人生不易部】日常#5「剪辑挑战 加油！」（生如百戏难！LOVELIVE! 青鸟）",

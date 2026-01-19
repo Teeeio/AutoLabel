@@ -202,6 +202,8 @@ export default function App() {
   const [hoveredCommunityBvid, setHoveredCommunityBvid] = useState("");
   const [manageLoadingState, setManageLoadingState] = useState(new Map());
   const [communityLoadingState, setCommunityLoadingState] = useState(new Map());
+  const [previewCurrentTime, setPreviewCurrentTime] = useState(new Map()); // 跟踪每个预览的当前时间
+  const [isDraggingProgress, setIsDraggingProgress] = useState(false); // 跟踪是否正在拖动进度条
   const manageWebviewTimerRef = useRef(null);
   const communityWebviewTimerRef = useRef(null);
   const [loadTick, setLoadTick] = useState(0);
@@ -230,6 +232,7 @@ export default function App() {
   const resolvingRef = useRef(false);
   const dragRef = useRef({ type: null, startX: 0, start: 0, end: 0 });
   const wasPlayingRef = useRef(false);
+  const [tooltip, setTooltip] = useState({ visible: false, text: '', x: 0, y: 0 });
   const lastRangeStartRef = useRef(rangeStart);
   const playRequestRef = useRef(null);
   const keyHoldRef = useRef({ key: null, timeout: null, raf: null, long: false, lastRate: 1, lastFrame: null });
@@ -367,43 +370,158 @@ export default function App() {
         const endTime = Number.isFinite(card.end) ? card.end : undefined;
 
         // 初始化webview：跳转到start位置并暂停
-        setTimeout(() => {
+        const initializeVideo = () => {
+          // 检查 webview 是否仍然存在于 DOM 中
+          const currentWebview = document.getElementById(webview.id);
+          if (!currentWebview) {
+            console.log('Webview no longer exists, skipping initialization');
+            return;
+          }
+
           webview.executeJavaScript(`
             (function() {
               const video = document.querySelector('video');
               const player = document.querySelector('.bpx-player-container');
+              const controller = document.querySelector('.bpx-player-control-wrap');
+              const danmaku = document.querySelector('.bpx-player-dm-layer');
 
-              console.log('Initializing video at:', ${startTime});
+              console.log('Initializing video at:', ${startTime}, 'video:', !!video);
 
-              // 跳转到起始位置
+              // 隐藏播放器控件
+              if (controller) {
+                controller.style.display = 'none';
+              }
+              if (danmaku) {
+                danmaku.style.display = 'none';
+              }
+
+              // 跳转到起始位置并播放以显示画面
               if (video) {
+                video.muted = true; // 静音以允许自动播放
+
+                // 先播放以加载画面
                 video.currentTime = ${startTime};
-                video.pause();
-                video.autoplay = false;
+                const playPromise = video.play();
 
-                // 确保视频加载后暂停在首帧
-                video.addEventListener('loadeddata', function() {
-                  video.pause();
-                  video.currentTime = ${startTime};
-                }, { once: true });
+                if (playPromise !== undefined) {
+                  playPromise.then(() => {
+                    // 播放成功后立即暂停
+                    setTimeout(() => {
+                      video.pause();
+                      video.currentTime = ${startTime};
+                      video.muted = false; // 恢复音量
+                    }, 100);
+                  }).catch(err => {
+                    console.log('Autoplay prevented, trying alternative:', err);
+                    // 如果自动播放被阻止，尝试静音播放
+                    video.muted = true;
+                    video.play().then(() => {
+                      setTimeout(() => {
+                        video.pause();
+                        video.currentTime = ${startTime};
+                      }, 100);
+                    }).catch(e => {
+                      console.error('Play failed:', e);
+                    });
+                  });
+                }
 
-                // 添加播放范围限制
+                // 添加播放范围限制和时间更新
                 video.addEventListener('timeupdate', function() {
+                  // 通知父组件更新时间
+                  if (window.electronIPC) {
+                    window.electronIPC.sendMessage('preview-timeupdate', {
+                      cardId: '${cardId}',
+                      currentTime: video.currentTime,
+                      startTime: ${startTime},
+                      endTime: ${endTime}
+                    });
+                  }
+
+                  // 循环播放：到达结束时回到起始位置
                   if (${endTime} !== undefined && video.currentTime >= ${endTime}) {
-                    video.pause();
-                    video.currentTime = ${endTime}; // 停留在end位置
+                    video.currentTime = ${startTime};
+                    // 如果视频正在播放，继续播放
+                    if (!video.paused) {
+                      video.play().catch(e => console.log('Auto-loop play failed:', e));
+                    }
                   }
                 });
               }
 
               if (player) {
-                player.style.pointerEvents = 'none';
+                // 只禁用控制栏的点击，保留视频区域的交互
+                const controlWrap = player.querySelector('.bpx-player-control-wrap');
+                if (controlWrap) {
+                  controlWrap.style.pointerEvents = 'none';
+                }
               }
+
+              return {
+                video: !!video,
+                currentTime: video ? video.currentTime : 0
+              };
             })();
-          `).catch((err) => {
+          `).then((result) => {
+            console.log('Webview initialized:', result);
+          }).catch((err) => {
             console.error('Failed to initialize webview:', err);
           });
-        }, 1000);
+        };
+
+        // 先尝试初始化，如果失败则延迟重试
+        setTimeout(initializeVideo, 500);
+
+        // 再次尝试确保视频已初始化
+        setTimeout(initializeVideo, 2000);
+
+        // 标记webview已准备好，用于时间更新
+        let isReadyForTimeUpdate = false;
+        let updateInterval = null;
+
+        // 定期更新当前时间
+        const startTimeUpdate = () => {
+          if (updateInterval) return; // 避免重复启动
+
+          const updateTime = () => {
+            const currentWebview = document.getElementById(webview.id);
+            if (!currentWebview) {
+              clearInterval(updateInterval);
+              updateInterval = null;
+              return;
+            }
+
+            currentWebview.executeJavaScript(`
+              (function() {
+                const video = document.querySelector('video');
+                return video ? video.currentTime : ${startTime};
+              })();
+            `).then((time) => {
+              if (typeof time === 'number') {
+                setPreviewCurrentTime(prev => new Map(prev).set(cardId, time));
+              }
+            }).catch((err) => {
+              console.error('Time update error:', err);
+            });
+          };
+
+          updateInterval = setInterval(updateTime, 500);
+        };
+
+        // 等待一段时间后开始更新时间
+        const readyTimer = setTimeout(() => {
+          isReadyForTimeUpdate = true;
+          startTimeUpdate();
+        }, 1500);
+
+        // 清理函数
+        return () => {
+          clearTimeout(readyTimer);
+          if (updateInterval) {
+            clearInterval(updateInterval);
+            updateInterval = null;
+          }
+        };
       };
 
       webview.addEventListener('dom-ready', handler);
@@ -442,43 +560,143 @@ export default function App() {
         const endTime = Number.isFinite(card.end) ? card.end : undefined;
 
         // 初始化webview：跳转到start位置并暂停
-        setTimeout(() => {
+        const initializeVideo = () => {
+          // 检查 webview 是否仍然存在于 DOM 中
+          const currentWebview = document.getElementById(webview.id);
+          if (!currentWebview) {
+            console.log('Community webview no longer exists, skipping initialization');
+            return;
+          }
+
           webview.executeJavaScript(`
             (function() {
               const video = document.querySelector('video');
               const player = document.querySelector('.bpx-player-container');
+              const controller = document.querySelector('.bpx-player-control-wrap');
+              const danmaku = document.querySelector('.bpx-player-dm-layer');
 
-              console.log('Initializing community video at:', ${startTime});
+              console.log('Initializing community video at:', ${startTime}, 'video:', !!video);
 
-              // 跳转到起始位置
+              // 隐藏播放器控件
+              if (controller) {
+                controller.style.display = 'none';
+              }
+              if (danmaku) {
+                danmaku.style.display = 'none';
+              }
+
+              // 跳转到起始位置并播放以显示画面
               if (video) {
+                video.muted = true; // 静音以允许自动播放
+
+                // 先播放以加载画面
                 video.currentTime = ${startTime};
-                video.pause();
-                video.autoplay = false;
+                const playPromise = video.play();
 
-                // 确保视频加载后暂停在首帧
-                video.addEventListener('loadeddata', function() {
-                  video.pause();
-                  video.currentTime = ${startTime};
-                }, { once: true });
+                if (playPromise !== undefined) {
+                  playPromise.then(() => {
+                    // 播放成功后立即暂停
+                    setTimeout(() => {
+                      video.pause();
+                      video.currentTime = ${startTime};
+                      video.muted = false; // 恢复音量
+                    }, 100);
+                  }).catch(err => {
+                    console.log('Autoplay prevented, trying alternative:', err);
+                    // 如果自动播放被阻止，尝试静音播放
+                    video.muted = true;
+                    video.play().then(() => {
+                      setTimeout(() => {
+                        video.pause();
+                        video.currentTime = ${startTime};
+                      }, 100);
+                    }).catch(e => {
+                      console.error('Play failed:', e);
+                    });
+                  });
+                }
 
-                // 添加播放范围限制
+                // 添加播放范围限制（循环播放）
                 video.addEventListener('timeupdate', function() {
+                  // 循环播放：到达结束时回到起始位置
                   if (${endTime} !== undefined && video.currentTime >= ${endTime}) {
-                    video.pause();
-                    video.currentTime = ${endTime}; // 停留在end位置
+                    video.currentTime = ${startTime};
+                    // 如果视频正在播放，继续播放
+                    if (!video.paused) {
+                      video.play().catch(e => console.log('Auto-loop play failed:', e));
+                    }
                   }
                 });
               }
 
               if (player) {
-                player.style.pointerEvents = 'none';
+                // 只禁用控制栏的点击，保留视频区域的交互
+                const controlWrap = player.querySelector('.bpx-player-control-wrap');
+                if (controlWrap) {
+                  controlWrap.style.pointerEvents = 'none';
+                }
               }
+
+              return true;
             })();
           `).catch((err) => {
             console.error('Failed to initialize community webview:', err);
           });
-        }, 1000);
+        };
+
+        // 先尝试初始化，如果失败则延迟重试
+        setTimeout(initializeVideo, 500);
+
+        // 再次尝试确保视频已初始化
+        setTimeout(initializeVideo, 2000);
+
+        // 标记webview已准备好，用于时间更新
+        let isReadyForTimeUpdate = false;
+        let updateInterval = null;
+
+        // 定期更新当前时间
+        const startTimeUpdate = () => {
+          if (updateInterval) return; // 避免重复启动
+
+          const updateTime = () => {
+            const currentWebview = document.getElementById(webview.id);
+            if (!currentWebview) {
+              clearInterval(updateInterval);
+              updateInterval = null;
+              return;
+            }
+
+            currentWebview.executeJavaScript(`
+              (function() {
+                const video = document.querySelector('video');
+                return video ? video.currentTime : ${startTime};
+              })();
+            `).then((time) => {
+              if (typeof time === 'number') {
+                setPreviewCurrentTime(prev => new Map(prev).set(cardId, time));
+              }
+            }).catch((err) => {
+              console.error('Time update error:', err);
+            });
+          };
+
+          updateInterval = setInterval(updateTime, 500);
+        };
+
+        // 等待一段时间后开始更新时间
+        const readyTimer = setTimeout(() => {
+          isReadyForTimeUpdate = true;
+          startTimeUpdate();
+        }, 1500);
+
+        // 清理函数
+        return () => {
+          clearTimeout(readyTimer);
+          if (updateInterval) {
+            clearInterval(updateInterval);
+            updateInterval = null;
+          }
+        };
       };
 
       webview.addEventListener('dom-ready', handler);
@@ -3280,12 +3498,22 @@ export default function App() {
                             onChange={() => handleToggleManageSelect(card.id)}
                           />
                           <div className="manage-card-info">
-                            <div className="manage-card-title">{card.title || "未命名卡片"}</div>
-                            <div className="manage-card-meta">
-                              {card.bvid}
-                              {normalizeCardTags(card.tags).length
-                                ? " 路 " + normalizeCardTags(card.tags).slice(0, 3).join(" / ")
-                                : ""}
+                            <div
+                              className="manage-card-title"
+                              onMouseEnter={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setTooltip({
+                                  visible: true,
+                                  text: card.title || "未命名卡片",
+                                  x: rect.left,
+                                  y: rect.bottom + 8
+                                });
+                              }}
+                              onMouseLeave={() => {
+                                setTooltip(prev => ({ ...prev, visible: false }));
+                              }}
+                            >
+                              {card.title || "未命名卡片"}
                             </div>
                           </div>
                         </label>
@@ -3295,8 +3523,6 @@ export default function App() {
                       </div>
                       <div
                         className="manage-card-preview"
-                        onClick={() => handleOpenCardDetail(card)}
-                        style={{ cursor: 'pointer' }}
                         onMouseEnter={() => {
                           setHoveredManageId(card.id);
                           setHoveredManageBvid(card.bvid);
@@ -3333,29 +3559,108 @@ export default function App() {
                       >
                         <div className="preview-container">
                           {webviewManageIds.has(card.id) ? (
-                            <webview
-                              id={`manage-preview-${card.bvid}`}
-                              data-card-id={card.id}
-                              data-bvid={card.bvid}
-                              data-start={card.start}
-                              data-end={card.end}
-                              src={buildCardPreviewUrl({
-                                bvid: card.bvid,
-                                start: card.start,
-                                end: card.end
-                              })}
-                              className="card-preview-webview"
-                              allowpopups="true"
-                              httpreferrer="https://www.bilibili.com"
-                              useragent={bilibiliUserAgent}
-                              partition="temp:bili"
-                              preload={window.env?.bilibiliPagePreload}
-                              style={{
-                                opacity: 1,
-                                width: '100%',
-                                height: '100%'
-                              }}
-                            />
+                            <>
+                              <webview
+                                id={`manage-preview-${card.bvid}`}
+                                data-card-id={card.id}
+                                data-bvid={card.bvid}
+                                data-start={card.start}
+                                data-end={card.end}
+                                src={buildCardPreviewUrl({
+                                  bvid: card.bvid,
+                                  start: card.start,
+                                  end: card.end
+                                })}
+                                className="card-preview-webview"
+                                allowpopups="true"
+                                httpreferrer="https://www.bilibili.com"
+                                useragent={bilibiliUserAgent}
+                                partition="temp:bili"
+                                preload={window.env?.bilibiliPagePreload}
+                                style={{
+                                  opacity: 1,
+                                  width: '100%',
+                                  height: '100%'
+                                }}
+                              />
+                              {/* 底部渐变遮罩 - 防止误点击 */}
+                              <div
+                                className="preview-bottom-shield"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                }}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                }}
+                              />
+                              {/* 进度条 */}
+                              <div
+                                className="preview-progress-bar"
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  setIsDraggingProgress(true); // 开始拖动
+                                  const progressBar = e.currentTarget;
+
+                                  const updateTime = (clientX) => {
+                                    const rect = progressBar.getBoundingClientRect();
+                                    const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                                    const newTime = card.start + (card.end - card.start) * percent;
+                                    const webview = document.getElementById(`manage-preview-${card.bvid}`);
+                                    if (webview) {
+                                      webview.executeJavaScript(`
+                                        (function() {
+                                          const video = document.querySelector('video');
+                                          if (video) {
+                                            video.currentTime = ${newTime};
+                                          }
+                                        })();
+                                      `).catch(() => {});
+                                    }
+                                    setPreviewCurrentTime(prev => new Map(prev).set(card.id, newTime));
+                                  };
+
+                                  const handleMouseMove = (moveEvent) => {
+                                    updateTime(moveEvent.clientX);
+                                  };
+
+                                  const handleMouseUp = () => {
+                                    setIsDraggingProgress(false); // 结束拖动
+                                    document.removeEventListener('mousemove', handleMouseMove);
+                                    document.removeEventListener('mouseup', handleMouseUp);
+                                  };
+
+                                  // 初始点击
+                                  updateTime(e.clientX);
+
+                                  document.addEventListener('mousemove', handleMouseMove);
+                                  document.addEventListener('mouseup', handleMouseUp);
+                                }}
+                              >
+                                <div
+                                  className="preview-progress-track"
+                                  style={{
+                                    width: `${Math.max(0, Math.min(100, ((previewCurrentTime.get(card.id) || card.start) - card.start) / (card.end - card.start) * 100))}%`
+                                  }}
+                                />
+                                <div
+                                  className="preview-progress-handle"
+                                  style={{
+                                    left: `${Math.max(0, Math.min(100, ((previewCurrentTime.get(card.id) || card.start) - card.start) / (card.end - card.start) * 100))}%`
+                                  }}
+                                />
+                              </div>
+                              {/* 时间标记 - 显示区间内的相对时间 */}
+                              <div className="preview-range-markers">
+                                <div className="preview-range-marker">
+                                  {formatTime(Math.floor((previewCurrentTime.get(card.id) || card.start) - card.start))}
+                                </div>
+                                <div className="preview-range-marker">
+                                  总时长: {formatTime(card.end - card.start)}
+                                </div>
+                              </div>
+                            </>
                           ) : (
                             <div className="preview-placeholder">
                               <div className="preview-placeholder-content">
@@ -3391,6 +3696,13 @@ export default function App() {
                           {formatTime(card.start)}-{formatTime(card.end)}
                         </div>
                         <div className="manage-row-actions">
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => handleOpenCardDetail(card)}
+                          >
+                            详情
+                          </button>
                           <button
                             type="button"
                             className="ghost"
@@ -3461,10 +3773,29 @@ export default function App() {
                     {communityCardResults.length ? (
                       communityCardResults.map((card) => (
                         <div key={card.id} className="community-card" data-card-id={card.id}>
+                          <div className="manage-card-head">
+                            <div className="manage-card-info">
+                              <div
+                                className="manage-card-title"
+                                onMouseEnter={(e) => {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setTooltip({
+                                    visible: true,
+                                    text: card.title || "未命名卡片",
+                                    x: rect.left,
+                                    y: rect.bottom + 8
+                                  });
+                                }}
+                                onMouseLeave={() => {
+                                  setTooltip(prev => ({ ...prev, visible: false }));
+                                }}
+                              >
+                                {card.title || "未命名卡片"}
+                              </div>
+                            </div>
+                          </div>
                           <div
-                            className="community-preview"
-                            onClick={() => handleOpenCardDetail(card)}
-                            style={{ cursor: 'pointer' }}
+                            className="manage-card-preview"
                             onMouseEnter={() => {
                               setHoveredCommunityId(card.id);
                               setHoveredCommunityBvid(card.bvid);
@@ -3499,54 +3830,133 @@ export default function App() {
                               }, 1500);
                             }}
                           >
-                          <div className="preview-container">
-                            {webviewCommunityIds.has(card.id) ? (
-                              <webview
-                                id={`community-preview-${card.bvid}`}
-                                data-card-id={card.id}
-                                data-bvid={card.bvid}
-                                data-start={card.start}
-                                data-end={card.end}
-                                src={buildCardPreviewUrl({
-                                  bvid: card.bvid,
-                                  start: card.start,
-                                  end: card.end
-                                })}
-                                className="card-preview-webview"
-                                allowpopups="true"
-                                httpreferrer="https://www.bilibili.com"
-                                useragent={bilibiliUserAgent}
-                                partition="temp:bili"
-                                preload={window.env?.bilibiliPagePreload}
-                                style={{
-                                  opacity: 1,
-                                  width: '100%',
-                                  height: '100%'
-                                }}
-                              />
-                            ) : (
-                              <div className="preview-placeholder">
-                                <div className="preview-placeholder-content">
-                                  <div className="preview-placeholder-icon">▶</div>
-                                  <div className="preview-placeholder-text">
-                                    {formatTime(card.start)} - {formatTime(card.end)}
+                            <div className="preview-container">
+                              {webviewCommunityIds.has(card.id) ? (
+                                <>
+                                  <webview
+                                    id={`community-preview-${card.bvid}`}
+                                    data-card-id={card.id}
+                                    data-bvid={card.bvid}
+                                    data-start={card.start}
+                                    data-end={card.end}
+                                    src={buildCardPreviewUrl({
+                                      bvid: card.bvid,
+                                      start: card.start,
+                                      end: card.end
+                                    })}
+                                    className="card-preview-webview"
+                                    allowpopups="true"
+                                    httpreferrer="https://www.bilibili.com"
+                                    useragent={bilibiliUserAgent}
+                                    partition="temp:bili"
+                                    preload={window.env?.bilibiliPagePreload}
+                                    style={{
+                                      opacity: 1,
+                                      width: '100%',
+                                      height: '100%'
+                                    }}
+                                  />
+                                  {/* 底部渐变遮罩 - 防止误点击 */}
+                                  <div
+                                    className="preview-bottom-shield"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                    }}
+                                    onMouseDown={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                    }}
+                                  />
+                                  {/* 进度条 */}
+                                  <div
+                                    className="preview-progress-bar"
+                                    onMouseDown={(e) => {
+                                      e.stopPropagation();
+                                      setIsDraggingProgress(true); // 开始拖动
+                                      const progressBar = e.currentTarget;
+
+                                      const updateTime = (clientX) => {
+                                        const rect = progressBar.getBoundingClientRect();
+                                        const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                                        const newTime = card.start + (card.end - card.start) * percent;
+                                        const webview = document.getElementById(`community-preview-${card.bvid}`);
+                                        if (webview) {
+                                          webview.executeJavaScript(`
+                                            (function() {
+                                              const video = document.querySelector('video');
+                                              if (video) {
+                                                video.currentTime = ${newTime};
+                                              }
+                                            })();
+                                          `).catch(() => {});
+                                        }
+                                        setPreviewCurrentTime(prev => new Map(prev).set(card.id, newTime));
+                                      };
+
+                                      const handleMouseMove = (moveEvent) => {
+                                        updateTime(moveEvent.clientX);
+                                      };
+
+                                      const handleMouseUp = () => {
+                                        setIsDraggingProgress(false); // 结束拖动
+                                        document.removeEventListener('mousemove', handleMouseMove);
+                                        document.removeEventListener('mouseup', handleMouseUp);
+                                      };
+
+                                      // 初始点击
+                                      updateTime(e.clientX);
+
+                                      document.addEventListener('mousemove', handleMouseMove);
+                                      document.addEventListener('mouseup', handleMouseUp);
+                                    }}
+                                  >
+                                    <div
+                                      className="preview-progress-track"
+                                      style={{
+                                        width: `${Math.max(0, Math.min(100, ((previewCurrentTime.get(card.id) || card.start) - card.start) / (card.end - card.start) * 100))}%`
+                                      }}
+                                    />
+                                    <div
+                                      className="preview-progress-handle"
+                                      style={{
+                                        left: `${Math.max(0, Math.min(100, ((previewCurrentTime.get(card.id) || card.start) - card.start) / (card.end - card.start) * 100))}%`
+                                      }}
+                                    />
+                                  </div>
+                                  {/* 时间标记 - 显示区间内的相对时间 */}
+                                  <div className="preview-range-markers">
+                                    <div className="preview-range-marker">
+                                      {formatTime(Math.floor((previewCurrentTime.get(card.id) || card.start) - card.start))}
+                                    </div>
+                                    <div className="preview-range-marker">
+                                      总时长: {formatTime(card.end - card.start)}
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="preview-placeholder">
+                                  <div className="preview-placeholder-content">
+                                    <div className="preview-placeholder-icon">▶</div>
+                                    <div className="preview-placeholder-text">
+                                      {formatTime(card.start)} - {formatTime(card.end)}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            )}
-                            {communityLoadingState.get(card.id)?.webviewLoading && webviewCommunityIds.has(card.id) && (
-                              <div className="preview-overlay">
-                                <div className="loading-indicator">
-                                  <div className="spinner"></div>
-                                  <div className="loading-text">
-                                    预览加载中...
-                                    <span className="loading-time" key={loadTick}>
-                                      {(getCommunityLoadingTime(card.id, 'webview') / 1000).toFixed(1)}s
-                                    </span>
+                              )}
+                              {communityLoadingState.get(card.id)?.webviewLoading && webviewCommunityIds.has(card.id) && (
+                                <div className="preview-overlay">
+                                  <div className="loading-indicator">
+                                    <div className="spinner"></div>
+                                    <div className="loading-text">
+                                      预览加载中...
+                                      <span className="loading-time" key={loadTick}>
+                                        {(getCommunityLoadingTime(card.id, 'webview') / 1000).toFixed(1)}s
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
                             </div>
                             {communityLoadingState.get(card.id)?.webviewLoadTime && (
                               <div className="loading-debug" key={loadTick}>
@@ -3554,27 +3964,17 @@ export default function App() {
                               </div>
                             )}
                           </div>
-                          <div className="community-cover">
-                            <div className="community-cover-title">
-                              {card.title || "未命名卡片"}
+                          <div className="manage-card-footer">
+                            <div className="manage-range">
+                              {formatTime(card.start)}-{formatTime(card.end)}
                             </div>
-                            <div className="community-cover-sub">
-                              {card.bvid} 路 {formatTime(card.start)}-{formatTime(card.end)}
-                            </div>
-                          </div>
-                          <div className="community-card-body">
-                            <div className="community-card-meta">
-                              <span className="community-chip">
-                                {normalizeCardTags(card.tags).slice(0, 3).join(" / ") || "无标签"}
-                              </span>
-                            </div>
-                            <div className="community-item-actions">
+                            <div className="manage-row-actions">
                               <button
                                 type="button"
                                 className="ghost"
-                                onClick={() => handleApplyCardTags(card)}
+                                onClick={() => handleOpenCardDetail(card)}
                               >
-                                套用标签
+                                详情
                               </button>
                             </div>
                           </div>
@@ -3709,6 +4109,29 @@ export default function App() {
           </div>
         </div>
       ) : null}
+      {tooltip.visible && (
+        <div
+          style={{
+            position: 'fixed',
+            left: `${tooltip.x}px`,
+            top: `${tooltip.y}px`,
+            padding: '8px 12px',
+            background: 'rgba(15, 23, 42, 0.95)',
+            color: 'white',
+            fontSize: '13px',
+            fontWeight: '500',
+            borderRadius: '8px',
+            maxWidth: '300px',
+            zIndex: 10000,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+            pointerEvents: 'none',
+            lineHeight: '1.4',
+            wordWrap: 'break-word'
+          }}
+        >
+          {tooltip.text}
+        </div>
+      )}
     </div>
   );
 }
