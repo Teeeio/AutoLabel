@@ -178,6 +178,7 @@ export default function App() {
   const [isBuffering, setIsBuffering] = useState(false);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [previewEpoch, setPreviewEpoch] = useState(0);
+  const [previewPanelKey, setPreviewPanelKey] = useState(0);
   const [isDashMode, setIsDashMode] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [dragHandle, setDragHandle] = useState(null);
@@ -2062,6 +2063,29 @@ export default function App() {
   const handleCloseDetail = useCallback(() => {
     setDetailCard(null);
     setDetailWebviewLoading(false);
+
+    // 切回卡片制作页面时,强制刷新整个预览面板
+    setPreviewPanelKey(prev => prev + 1);
+
+    // 切回卡片制作页面时,重置为初始状态(空预览)
+    setPreviewEpoch(prev => prev + 2);
+    setActiveId("");
+    setPreviewSource(null);
+    setPreviewUrl("");
+    setPreviewError("");
+    setDuration(0);
+    setCurrentTime(0);
+    setRangeStart(0);
+    setRangeEnd(30);
+    setSegmentSpan(0);
+    setSegmentOffset(0);
+    setSourceDuration(0);
+    setIsPlaying(false);
+    setIsBuffering(false);
+    setIsDashMode(false);
+    setIsLoadingPreview(false);
+    setIsResolving(false);
+    resetDash();
   }, []);
   const handleSetPoint = (field) => {
     if (!Number.isFinite(currentTime)) return;
@@ -3168,6 +3192,30 @@ export default function App() {
   const currentPath = location.pathname || "/";
   const isBuilderPage = currentPath === "/" || currentPath.startsWith("/builder");
   const normalizedAuth = authStatus?.toLowerCase?.() || "";
+
+  // 监听路由变化,当切换回卡片制作页面时强制刷新预览栏
+  const previousPathRef = useRef(null);
+  useEffect(() => {
+    const previousPath = previousPathRef.current;
+    const currentPath = location.pathname || "/";
+
+    // 只在路径真正变化时执行
+    if (previousPath !== currentPath) {
+      // 只在切换到卡片制作页面(根路径或/builder)时执行
+      if (currentPath === "/" || currentPath.startsWith("/builder")) {
+        // 只刷新预览栏相关的状态
+        setPreviewPanelKey(prev => prev + 1);
+        setPreviewEpoch(prev => prev + 1);
+        setPreviewUrl("");
+        setPreviewError("");
+        setIsLoadingPreview(false);
+        setIsResolving(false);
+      }
+
+      // 更新上一次的路径
+      previousPathRef.current = currentPath;
+    }
+  }, [location.pathname]);
   const isLoggedIn = normalizedAuth === "logged in";
   const isLoggingIn = normalizedAuth === "logging in";
   const isUnavailable = normalizedAuth === "unavailable";
@@ -3307,7 +3355,7 @@ export default function App() {
               ) : null}
             </div>
           </section>
-          <section className="panel panel-preview">
+          <section className="panel panel-preview" key={previewPanelKey}>
             <div className="preview-head">
               <div className="preview-title">
                 <h2>{activeCard?.title || "预览"}</h2>
