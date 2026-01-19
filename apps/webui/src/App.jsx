@@ -3,7 +3,6 @@ import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom"
 import {
   createCard,
   getCards,
-  getBiliCover,
   getSession,
   login,
   logout,
@@ -60,7 +59,7 @@ function buildEmbedUrl({ bvid, aid, cid }) {
   if (cid) params.set("cid", cid);
   return `https://www.bilibili.com/video/${bvid}?${params.toString()}`;
 }
-function buildCardPreviewUrl({ bvid, start }) {
+function buildCardPreviewUrl({ bvid, start, end }) {
   if (!bvid) return "";
   const params = new URLSearchParams();
   params.set("bvid", bvid);
@@ -73,7 +72,10 @@ function buildCardPreviewUrl({ bvid, start }) {
   if (Number.isFinite(start) && start > 0) {
     params.set("t", String(Math.floor(start)));
   }
-  return `https://player.bilibili.com/player.html?${params.toString()}#t=${Math.floor(start || 0)}`;
+  // 添加区间限制到URL
+  const startTime = Math.floor(start || 0);
+  const endTime = Number.isFinite(end) ? Math.floor(end) : undefined;
+  return `https://player.bilibili.com/player.html?${params.toString()}#t=${startTime}`;
 }
 const bilibiliUserAgent =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -191,19 +193,13 @@ export default function App() {
   const [manageFilter, setManageFilter] = useState("all");
   const [manageSearch, setManageSearch] = useState("");
   const [manageSelected, setManageSelected] = useState([]);
-  const [visibleManageIds, setVisibleManageIds] = useState([]);
-  const [visibleCommunityIds, setVisibleCommunityIds] = useState([]);
+  const [webviewManageIds, setWebviewManageIds] = useState(new Set());
+  const [webviewCommunityIds, setWebviewCommunityIds] = useState(new Set());
+  const [detailCard, setDetailCard] = useState(null);
   const [hoveredManageId, setHoveredManageId] = useState("");
   const [hoveredCommunityId, setHoveredCommunityId] = useState("");
-  const [coverMap, setCoverMap] = useState({});
-  const visibleManageRef = useRef(new Set());
-  const visibleCommunityRef = useRef(new Set());
-  const coverMapRef = useRef({});
-  const coverLoadingRef = useRef(new Set());
   const [hoveredManageBvid, setHoveredManageBvid] = useState("");
   const [hoveredCommunityBvid, setHoveredCommunityBvid] = useState("");
-  const [showManageWebviewId, setShowManageWebviewId] = useState("");
-  const [showCommunityWebviewId, setShowCommunityWebviewId] = useState("");
   const [manageLoadingState, setManageLoadingState] = useState(new Map());
   const [communityLoadingState, setCommunityLoadingState] = useState(new Map());
   const manageWebviewTimerRef = useRef(null);
@@ -343,77 +339,168 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
-    if (!showManageWebviewId) return;
-    const webview = document.getElementById(`manage-preview-${showManageWebviewId}`);
-    if (!webview) return;
-    const handler = () => {
-      const loadTime = Date.now() - (manageLoadingState.get(showManageWebviewId)?.webviewStartTime || Date.now());
-      setManageLoadingState((prev) => new Map(prev).set(showManageWebviewId, {
-        ...prev.get(showManageWebviewId),
-        webviewLoading: false,
-        webviewReady: true,
-        webviewLoadTime: loadTime
-      }));
-      setTimeout(() => {
-        webview.style.opacity = '1';
-        webview.executeJavaScript(`
-          (function() {
-            const video = document.querySelector('video');
-            if (video) {
-              video.pause();
-            }
-            const player = document.querySelector('.bpx-player-container');
-            if (player) {
-              player.style.pointerEvents = 'none';
-            }
-          })();
-        `).catch(() => {});
-      }, 300);
-    };
-    webview.addEventListener('dom-ready', handler);
-    return () => {
-      webview.removeEventListener('dom-ready', handler);
-      webview.style.opacity = '0';
-    };
-  }, [showManageWebviewId, manageLoadingState]);
+    // 初始化所有已加载的webview
+    const initializedWebviews = new Set();
+
+    webviewManageIds.forEach((cardId) => {
+      if (initializedWebviews.has(cardId)) return;
+
+      const card = communityMyCards.find(c => c.id === cardId);
+      if (!card) return;
+
+      const webview = document.getElementById(`manage-preview-${card.bvid}`);
+      if (!webview) return;
+
+      // 标记为已初始化，避免重复
+      initializedWebviews.add(cardId);
+
+      const handler = () => {
+        const loadTime = Date.now() - (manageLoadingState.get(cardId)?.webviewStartTime || Date.now());
+        setManageLoadingState((prev) => new Map(prev).set(cardId, {
+          ...prev.get(cardId),
+          webviewLoading: false,
+          webviewReady: true,
+          webviewLoadTime: loadTime
+        }));
+
+        const startTime = Number.isFinite(card.start) ? card.start : 0;
+        const endTime = Number.isFinite(card.end) ? card.end : undefined;
+
+        // 初始化webview：跳转到start位置并暂停
+        setTimeout(() => {
+          webview.executeJavaScript(`
+            (function() {
+              const video = document.querySelector('video');
+              const player = document.querySelector('.bpx-player-container');
+
+              console.log('Initializing video at:', ${startTime});
+
+              // 跳转到起始位置
+              if (video) {
+                video.currentTime = ${startTime};
+                video.pause();
+                video.autoplay = false;
+
+                // 确保视频加载后暂停在首帧
+                video.addEventListener('loadeddata', function() {
+                  video.pause();
+                  video.currentTime = ${startTime};
+                }, { once: true });
+
+                // 添加播放范围限制
+                video.addEventListener('timeupdate', function() {
+                  if (${endTime} !== undefined && video.currentTime >= ${endTime}) {
+                    video.pause();
+                    video.currentTime = ${endTime}; // 停留在end位置
+                  }
+                });
+              }
+
+              if (player) {
+                player.style.pointerEvents = 'none';
+              }
+            })();
+          `).catch((err) => {
+            console.error('Failed to initialize webview:', err);
+          });
+        }, 1000);
+      };
+
+      webview.addEventListener('dom-ready', handler);
+
+      // 清理函数
+      return () => {
+        webview.removeEventListener('dom-ready', handler);
+      };
+    });
+  }, [webviewManageIds, manageLoadingState, communityMyCards]);
   useEffect(() => {
-    if (!showCommunityWebviewId) return;
-    const webview = document.getElementById(`community-preview-${showCommunityWebviewId}`);
-    if (!webview) return;
-    const handler = () => {
-      const loadTime = Date.now() - (communityLoadingState.get(showCommunityWebviewId)?.webviewStartTime || Date.now());
-      setCommunityLoadingState((prev) => new Map(prev).set(showCommunityWebviewId, {
-        ...prev.get(showCommunityWebviewId),
-        webviewLoading: false,
-        webviewReady: true,
-        webviewLoadTime: loadTime
-      }));
-      setTimeout(() => {
-        webview.style.opacity = '1';
-        webview.executeJavaScript(`
-          (function() {
-            const video = document.querySelector('video');
-            if (video) {
-              video.pause();
-            }
-            const player = document.querySelector('.bpx-player-container');
-            if (player) {
-              player.style.pointerEvents = 'none';
-            }
-          })();
-        `).catch(() => {});
-      }, 300);
-    };
-    webview.addEventListener('dom-ready', handler);
+    // 初始化所有已加载的webview
+    const initializedWebviews = new Set();
+
+    webviewCommunityIds.forEach((cardId) => {
+      if (initializedWebviews.has(cardId)) return;
+
+      const card = communityCardResults.find(c => c.id === cardId);
+      if (!card) return;
+
+      const webview = document.getElementById(`community-preview-${card.bvid}`);
+      if (!webview) return;
+
+      initializedWebviews.add(cardId);
+
+      const handler = () => {
+        const loadTime = Date.now() - (communityLoadingState.get(cardId)?.webviewStartTime || Date.now());
+        setCommunityLoadingState((prev) => new Map(prev).set(cardId, {
+          ...prev.get(cardId),
+          webviewLoading: false,
+          webviewReady: true,
+          webviewLoadTime: loadTime
+        }));
+
+        const startTime = Number.isFinite(card.start) ? card.start : 0;
+        const endTime = Number.isFinite(card.end) ? card.end : undefined;
+
+        // 初始化webview：跳转到start位置并暂停
+        setTimeout(() => {
+          webview.executeJavaScript(`
+            (function() {
+              const video = document.querySelector('video');
+              const player = document.querySelector('.bpx-player-container');
+
+              console.log('Initializing community video at:', ${startTime});
+
+              // 跳转到起始位置
+              if (video) {
+                video.currentTime = ${startTime};
+                video.pause();
+                video.autoplay = false;
+
+                // 确保视频加载后暂停在首帧
+                video.addEventListener('loadeddata', function() {
+                  video.pause();
+                  video.currentTime = ${startTime};
+                }, { once: true });
+
+                // 添加播放范围限制
+                video.addEventListener('timeupdate', function() {
+                  if (${endTime} !== undefined && video.currentTime >= ${endTime}) {
+                    video.pause();
+                    video.currentTime = ${endTime}; // 停留在end位置
+                  }
+                });
+              }
+
+              if (player) {
+                player.style.pointerEvents = 'none';
+              }
+            })();
+          `).catch((err) => {
+            console.error('Failed to initialize community webview:', err);
+          });
+        }, 1000);
+      };
+
+      webview.addEventListener('dom-ready', handler);
+    });
+
+    // 清理函数
     return () => {
-      webview.removeEventListener('dom-ready', handler);
-      webview.style.opacity = '0';
+      initializedWebviews.forEach((cardId) => {
+        const card = communityCardResults.find(c => c.id === cardId);
+        if (card) {
+          const webview = document.getElementById(`community-preview-${card.bvid}`);
+          if (webview) {
+            webview.style.opacity = '0';
+          }
+        }
+      });
     };
-  }, [showCommunityWebviewId, communityLoadingState]);
+  }, [webviewCommunityIds, communityLoadingState, communityCardResults]);
   useEffect(() => {
     loadTimerRef.current = setInterval(() => {
       setLoadTick((prev) => prev + 1);
-    }, 100);
+    }, 500);
     return () => {
       if (loadTimerRef.current) {
         clearInterval(loadTimerRef.current);
@@ -425,12 +512,7 @@ export default function App() {
   const getLoadingTime = useCallback((cardId, type) => {
     const state = manageLoadingState.get(cardId);
     if (!state) return 0;
-    if (type === 'cover') {
-      if (state.coverLoadTime) return state.coverLoadTime;
-      if (state.coverLoading && state.coverStartTime) {
-        return Date.now() - state.coverStartTime;
-      }
-    } else if (type === 'webview') {
+    if (type === 'webview') {
       if (state.webviewLoadTime) return state.webviewLoadTime;
       if (state.webviewLoading && state.webviewStartTime) {
         return Date.now() - state.webviewStartTime;
@@ -441,12 +523,7 @@ export default function App() {
   const getCommunityLoadingTime = useCallback((cardId, type) => {
     const state = communityLoadingState.get(cardId);
     if (!state) return 0;
-    if (type === 'cover') {
-      if (state.coverLoadTime) return state.coverLoadTime;
-      if (state.coverLoading && state.coverStartTime) {
-        return Date.now() - state.coverStartTime;
-      }
-    } else if (type === 'webview') {
+    if (type === 'webview') {
       if (state.webviewLoadTime) return state.webviewLoadTime;
       if (state.webviewLoading && state.webviewStartTime) {
         return Date.now() - state.webviewStartTime;
@@ -750,7 +827,7 @@ export default function App() {
       if (!prev.some((entry) => entry.bvid === bvid)) return prev;
       return prev.map((entry) =>
         entry.bvid === bvid
-          ? { ...entry, status: "error", error: err?.message || "瑙ｆ瀽澶辫触" }
+          ? { ...entry, status: "error", error: err?.message || "解析失败" }
           : entry
       );
     });
@@ -1135,7 +1212,7 @@ export default function App() {
     try {
       const info = await window.preview?.info({ bvid: item.bvid });
       if (!info) {
-        throw new Error("瑙ｆ瀽澶辫触");
+        throw new Error("解析失败");
       }
       const resolvedDuration = Number.isFinite(info.duration) ? info.duration : item.duration;
       setParseQueue((prev) =>
@@ -1159,7 +1236,7 @@ export default function App() {
     } catch (err) {
       setParseQueue((prev) =>
         prev.map((entry) =>
-          entry.id === item.id ? { ...entry, status: "error", error: err?.message || "瑙ｆ瀽澶辫触" } : entry
+          entry.id === item.id ? { ...entry, status: "error", error: err?.message || "解析失败" } : entry
         )
       );
     }
@@ -1491,97 +1568,6 @@ export default function App() {
     const timer = setTimeout(() => setSaveNotice(""), 2500);
     return () => clearTimeout(timer);
   }, [saveNotice]);
-  useEffect(() => {
-    coverMapRef.current = coverMap;
-  }, [coverMap]);
-  const requestCover = useCallback(async (bvid, cardId, type = 'manage') => {
-    if (!bvid) return;
-    if (coverMapRef.current[bvid]) return;
-    if (coverLoadingRef.current.has(bvid)) return;
-    coverLoadingRef.current.add(bvid);
-    const startTime = Date.now();
-    if (type === 'manage' && cardId) {
-      setManageLoadingState((prev) => new Map(prev).set(cardId, {
-        ...prev.get(cardId),
-        coverLoading: true,
-        coverStartTime: startTime
-      }));
-    } else if (type === 'community' && cardId) {
-      setCommunityLoadingState((prev) => new Map(prev).set(cardId, {
-        ...prev.get(cardId),
-        coverLoading: true,
-        coverStartTime: startTime
-      }));
-    }
-    try {
-      let pic = "";
-      if (window.preview?.info) {
-        const info = await window.preview.info({ bvid });
-        pic = info?.pic || "";
-      }
-      if (!pic) {
-        const result = await getBiliCover({ bvid });
-        pic = result?.pic || "";
-      }
-      if (pic) {
-        pic = pic.replace(/^http:\/\//, "https://");
-      }
-      if (pic) {
-        setCoverMap((prev) => (prev[bvid] ? prev : { ...prev, [bvid]: pic }));
-      }
-    } catch (err) {
-      // ignore cover errors
-    } finally {
-      const loadTime = Date.now() - startTime;
-      if (type === 'manage' && cardId) {
-        setManageLoadingState((prev) => new Map(prev).set(cardId, {
-          ...prev.get(cardId),
-          coverLoading: false,
-          coverLoadTime: loadTime
-        }));
-      } else if (type === 'community' && cardId) {
-        setCommunityLoadingState((prev) => new Map(prev).set(cardId, {
-          ...prev.get(cardId),
-          coverLoading: false,
-          coverLoadTime: loadTime
-        }));
-      }
-      coverLoadingRef.current.delete(bvid);
-    }
-  }, []);
-  useEffect(() => {
-    if (!communityCardResults.length) {
-      visibleCommunityRef.current = new Set();
-      setVisibleCommunityIds([]);
-      return;
-    }
-    if (!("IntersectionObserver" in window)) {
-      setVisibleCommunityIds(communityCardResults.map((card) => card.id));
-      return;
-    }
-    visibleCommunityRef.current = new Set();
-    setVisibleCommunityIds([]);
-    const observer = new IntersectionObserver(
-      (entries) => {
-        let changed = false;
-        entries.forEach((entry) => {
-          if (!entry.isIntersecting) return;
-          const id = entry.target?.dataset?.cardId;
-          if (id && !visibleCommunityRef.current.has(id)) {
-            visibleCommunityRef.current.add(id);
-            changed = true;
-          }
-        });
-        if (changed) {
-          setVisibleCommunityIds(Array.from(visibleCommunityRef.current));
-        }
-      },
-      { root: null, rootMargin: "220px 0px", threshold: 0.1 }
-    );
-    const nodes = document.querySelectorAll(".community-card[data-card-id]");
-    nodes.forEach((node) => observer.observe(node));
-    return () => observer.disconnect();
-  }, [communityCardResults]);
   const filteredManageCards = useMemo(() => {
     const query = manageSearch.trim().toLowerCase();
     return communityMyCards.filter((card) => {
@@ -1595,48 +1581,10 @@ export default function App() {
       );
     });
   }, [communityMyCards, manageFilter, manageSearch]);
-  useEffect(() => {
-    if (!filteredManageCards.length) {
-      visibleManageRef.current = new Set();
-      setVisibleManageIds([]);
-      return;
-    }
-    if (!("IntersectionObserver" in window)) {
-      setVisibleManageIds(filteredManageCards.map((card) => card.id));
-      return;
-    }
-    visibleManageRef.current = new Set();
-    setVisibleManageIds([]);
-    const observer = new IntersectionObserver(
-      (entries) => {
-        let changed = false;
-        entries.forEach((entry) => {
-          if (!entry.isIntersecting) return;
-          const id = entry.target?.dataset?.cardId;
-          if (id && !visibleManageRef.current.has(id)) {
-            visibleManageRef.current.add(id);
-            changed = true;
-          }
-        });
-        if (changed) {
-          setVisibleManageIds(Array.from(visibleManageRef.current));
-        }
-      },
-      { root: null, rootMargin: "220px 0px", threshold: 0.1 }
-    );
-    const nodes = document.querySelectorAll(".manage-card[data-card-id]");
-    nodes.forEach((node) => observer.observe(node));
-    return () => observer.disconnect();
-  }, [filteredManageCards]);
-  useEffect(() => {
-    if (!visibleManageIds.length) return;
-    const idSet = new Set(visibleManageIds);
-    filteredManageCards.forEach((card) => {
-      if (idSet.has(card.id)) {
-        requestCover(card.bvid);
-      }
-    });
-  }, [visibleManageIds, filteredManageCards]);
+
+  const filteredCommunityCards = useMemo(() => {
+    return communityCardResults;
+  }, [communityCardResults]);
   const handleToggleManageSelect = (tagId) => {
     setManageSelected((prev) =>
       prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
@@ -1664,9 +1612,9 @@ export default function App() {
   };
   const clipTagGroups = [
     {
-      label: "鍥綋",
+      label: "团体",
       single: true,
-      options: ["渭s", "Aqours", "Nijigasaki", "Liella", "Hasunosora"]
+      options: ["μ's", "Aqours", "Nijigasaki", "Liella", "Hasunosora", "Bird"]
     }
   ];
   const toggleClipTag = (group, tag) => {
@@ -1689,7 +1637,7 @@ export default function App() {
     const payload = { mode, selection };
     const result = await window.generator?.run(payload);
     if (!result?.ok) {
-      alert(result?.message || "鐢熸垚鍣ㄤ笉鍙敤");
+      alert(result?.message || "生成器不可用");
       setStatus("idle");
       return;
     }
@@ -1798,6 +1746,15 @@ export default function App() {
     },
     [updateRangeState]
   );
+  const handleOpenCardDetail = useCallback(
+    (card) => {
+      setDetailCard(card);
+    },
+    []
+  );
+  const handleCloseDetail = useCallback(() => {
+    setDetailCard(null);
+  }, []);
   const handleSetPoint = (field) => {
     if (!Number.isFinite(currentTime)) return;
     const timeValue = Math.floor(currentTime * 10) / 10;
@@ -2433,7 +2390,7 @@ export default function App() {
                   if (title.includes("verify") || title.includes("captcha")) {
                     return "verify";
                   }
-                  if (title.includes("璁块棶") || title.includes("鍙楅檺")) {
+                  if (title.includes("访问") || title.includes("受限")) {
                     return "access";
                   }
                   if (
@@ -3313,9 +3270,7 @@ export default function App() {
               </div>
               <div className="manage-list manage-cards">
                 {filteredManageCards.length ? (
-                  filteredManageCards.map((card) => {
-                    const isVisible = visibleManageIds.includes(card.id);
-                    return (
+                  filteredManageCards.map((card) => (
                     <div key={card.id} className="manage-card" data-card-id={card.id}>
                       <div className="manage-card-head">
                         <label className="manage-check">
@@ -3340,79 +3295,94 @@ export default function App() {
                       </div>
                       <div
                         className="manage-card-preview"
+                        onClick={() => handleOpenCardDetail(card)}
+                        style={{ cursor: 'pointer' }}
                         onMouseEnter={() => {
                           setHoveredManageId(card.id);
                           setHoveredManageBvid(card.bvid);
-                          if (card.bvid && !coverMap[card.bvid] && !coverLoadingRef.current.has(card.bvid)) {
-                            requestCover(card.bvid, card.id, 'manage');
+                          // hover时才创建webview
+                          if (!webviewManageIds.has(card.id)) {
+                            setWebviewManageIds(prev => new Set(prev).add(card.id));
+                            // 记录加载开始时间
+                            setManageLoadingState(prev => new Map(prev).set(card.id, {
+                              webviewLoading: true,
+                              webviewStartTime: Date.now()
+                            }));
                           }
+                          // 清除之前的销毁定时器
+                          if (manageWebviewTimerRef.current) {
+                            clearTimeout(manageWebviewTimerRef.current);
+                            manageWebviewTimerRef.current = null;
+                          }
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredManageId((prev) => (prev === card.id ? "" : prev));
+                          // 延迟1.5秒后销毁webview
                           if (manageWebviewTimerRef.current) {
                             clearTimeout(manageWebviewTimerRef.current);
                           }
                           manageWebviewTimerRef.current = setTimeout(() => {
-                            setShowManageWebviewId(card.id);
-                          }, 300);
-                        }}
-                        onMouseLeave={() => {
-                          setHoveredManageId((prev) => (prev === card.id ? "" : prev));
-                          if (manageWebviewTimerRef.current) {
-                            clearTimeout(manageWebviewTimerRef.current);
-                          }
-                          manageWebviewTimerRef.current = null;
-                          setShowManageWebviewId("");
+                            setWebviewManageIds(prev => {
+                              const newSet = new Set(prev);
+                              newSet.delete(card.id);
+                              return newSet;
+                            });
+                            manageWebviewTimerRef.current = null;
+                          }, 1500);
                         }}
                       >
-                        {isVisible && showManageWebviewId === card.id ? (
-                          <webview
-                            id={`manage-preview-${card.id}`}
-                            src={buildCardPreviewUrl({
-                              bvid: card.bvid,
-                              start: card.start
-                            })}
-                            className="card-preview-webview"
-                            allowpopups="true"
-                            httpreferrer="https://www.bilibili.com"
-                            useragent={bilibiliUserAgent}
-                            partition="persist:bili"
-                            preload={window.env?.bilibiliPagePreload}
-                            style={{ opacity: 0, transition: 'opacity 0.3s' }}
-                          />
-                        ) : coverMap[card.bvid] ? (
-                          <img
-                            src={coverMap[card.bvid]}
-                            alt={card.title || card.bvid}
-                            className="card-preview-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="preview-placeholder">
-                            {manageLoadingState.get(card.id)?.coverLoading ? (
-                              <div className="loading-indicator">
-                                <div className="spinner"></div>
-                                <div className="loading-text">
-                                  封面加载中...
-                                  <span className="loading-time" key={loadTick}>
-                                    {(getLoadingTime(card.id, 'cover') / 1000).toFixed(1)}s
-                                  </span>
+                        <div className="preview-container">
+                          {webviewManageIds.has(card.id) ? (
+                            <webview
+                              id={`manage-preview-${card.bvid}`}
+                              data-card-id={card.id}
+                              data-bvid={card.bvid}
+                              data-start={card.start}
+                              data-end={card.end}
+                              src={buildCardPreviewUrl({
+                                bvid: card.bvid,
+                                start: card.start,
+                                end: card.end
+                              })}
+                              className="card-preview-webview"
+                              allowpopups="true"
+                              httpreferrer="https://www.bilibili.com"
+                              useragent={bilibiliUserAgent}
+                              partition="temp:bili"
+                              preload={window.env?.bilibiliPagePreload}
+                              style={{
+                                opacity: 1,
+                                width: '100%',
+                                height: '100%'
+                              }}
+                            />
+                          ) : (
+                            <div className="preview-placeholder">
+                              <div className="preview-placeholder-content">
+                                <div className="preview-placeholder-icon">▶</div>
+                                <div className="preview-placeholder-text">
+                                  {formatTime(card.start)} - {formatTime(card.end)}
                                 </div>
                               </div>
-                            ) : hoveredManageId === card.id ? (
+                            </div>
+                          )}
+                          {manageLoadingState.get(card.id)?.webviewLoading && webviewManageIds.has(card.id) && (
+                            <div className="preview-overlay">
                               <div className="loading-indicator">
                                 <div className="spinner"></div>
                                 <div className="loading-text">
-                                  播放器加载中...
+                                  预览加载中...
                                   <span className="loading-time" key={loadTick}>
                                     {(getLoadingTime(card.id, 'webview') / 1000).toFixed(1)}s
                                   </span>
                                 </div>
                               </div>
-                            ) : '悬停预览'}
-                          </div>
-                        )}
-                        {manageLoadingState.get(card.id) && (
+                            </div>
+                          )}
+                        </div>
+                        {manageLoadingState.get(card.id)?.webviewLoadTime && (
                           <div className="loading-debug" key={loadTick}>
-                            <div>封面: {manageLoadingState.get(card.id).coverLoadTime ? manageLoadingState.get(card.id).coverLoadTime.toFixed(0) + 'ms' : manageLoadingState.get(card.id).coverLoading ? getLoadingTime(card.id, 'cover').toFixed(0) + 'ms' : 'N/A'}</div>
-                            <div>播放器: {manageLoadingState.get(card.id).webviewLoadTime ? manageLoadingState.get(card.id).webviewLoadTime.toFixed(0) + 'ms' : manageLoadingState.get(card.id).webviewLoading ? getLoadingTime(card.id, 'webview').toFixed(0) + 'ms' : 'N/A'}</div>
+                            <div>预览: {manageLoadingState.get(card.id).webviewLoadTime.toFixed(0)}ms</div>
                           </div>
                         )}
                       </div>
@@ -3424,13 +3394,6 @@ export default function App() {
                           <button
                             type="button"
                             className="ghost"
-                            onClick={() => handlePreviewExternalCard(card)}
-                          >
-                            预览
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost"
                             onClick={() => handleToggleCardVisibility(card)}
                           >
                             {card.visibility === "public" ? "转私有" : "转公开"}
@@ -3438,8 +3401,7 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                  );
-                  })
+                  ))
                 ) : (
                   <div className="tag-empty">暂无卡片。</div>
                 )}
@@ -3497,85 +3459,98 @@ export default function App() {
                   </div>
                   <div className="community-list">
                     {communityCardResults.length ? (
-                      communityCardResults.map((card) => {
-                        const isVisible = visibleCommunityIds.includes(card.id);
-                        return (
+                      communityCardResults.map((card) => (
                         <div key={card.id} className="community-card" data-card-id={card.id}>
                           <div
                             className="community-preview"
+                            onClick={() => handleOpenCardDetail(card)}
+                            style={{ cursor: 'pointer' }}
                             onMouseEnter={() => {
                               setHoveredCommunityId(card.id);
                               setHoveredCommunityBvid(card.bvid);
-                              if (card.bvid && !coverMap[card.bvid] && !coverLoadingRef.current.has(card.bvid)) {
-                                requestCover(card.bvid, card.id, 'community');
+                              // hover时才创建webview
+                              if (!webviewCommunityIds.has(card.id)) {
+                                setWebviewCommunityIds(prev => new Set(prev).add(card.id));
+                                // 记录加载开始时间
+                                setCommunityLoadingState(prev => new Map(prev).set(card.id, {
+                                  webviewLoading: true,
+                                  webviewStartTime: Date.now()
+                                }));
                               }
+                              // 清除之前的销毁定时器
+                              if (communityWebviewTimerRef.current) {
+                                clearTimeout(communityWebviewTimerRef.current);
+                                communityWebviewTimerRef.current = null;
+                              }
+                            }}
+                            onMouseLeave={() => {
+                              setHoveredCommunityId((prev) => (prev === card.id ? "" : prev));
+                              // 延迟1.5秒后销毁webview
                               if (communityWebviewTimerRef.current) {
                                 clearTimeout(communityWebviewTimerRef.current);
                               }
                               communityWebviewTimerRef.current = setTimeout(() => {
-                                setShowCommunityWebviewId(card.id);
-                              }, 300);
-                            }}
-                            onMouseLeave={() => {
-                              setHoveredCommunityId((prev) => (prev === card.id ? "" : prev));
-                              if (communityWebviewTimerRef.current) {
-                                clearTimeout(communityWebviewTimerRef.current);
-                              }
-                              communityWebviewTimerRef.current = null;
-                              setShowCommunityWebviewId("");
+                                setWebviewCommunityIds(prev => {
+                                  const newSet = new Set(prev);
+                                  newSet.delete(card.id);
+                                  return newSet;
+                                });
+                                communityWebviewTimerRef.current = null;
+                              }, 1500);
                             }}
                           >
-                          {isVisible && showCommunityWebviewId === card.id ? (
+                          <div className="preview-container">
+                            {webviewCommunityIds.has(card.id) ? (
                               <webview
-                                id={`community-preview-${card.id}`}
+                                id={`community-preview-${card.bvid}`}
+                                data-card-id={card.id}
+                                data-bvid={card.bvid}
+                                data-start={card.start}
+                                data-end={card.end}
                                 src={buildCardPreviewUrl({
                                   bvid: card.bvid,
-                                  start: card.start
+                                  start: card.start,
+                                  end: card.end
                                 })}
                                 className="card-preview-webview"
                                 allowpopups="true"
                                 httpreferrer="https://www.bilibili.com"
                                 useragent={bilibiliUserAgent}
-                                partition="persist:bili"
+                                partition="temp:bili"
                                 preload={window.env?.bilibiliPagePreload}
-                                style={{ opacity: 0, transition: 'opacity 0.3s' }}
-                              />
-                            ) : coverMap[card.bvid] ? (
-                              <img
-                                src={coverMap[card.bvid]}
-                                alt={card.title || card.bvid}
-                                className="card-preview-cover"
-                                loading="lazy"
+                                style={{
+                                  opacity: 1,
+                                  width: '100%',
+                                  height: '100%'
+                                }}
                               />
                             ) : (
                               <div className="preview-placeholder">
-                                {communityLoadingState.get(card.id)?.coverLoading ? (
-                                  <div className="loading-indicator">
-                                    <div className="spinner"></div>
-                                    <div className="loading-text">
-                                      封面加载中...
-                                      <span className="loading-time" key={loadTick}>
-                                        {(getCommunityLoadingTime(card.id, 'cover') / 1000).toFixed(1)}s
-                                        </span>
-                                    </div>
+                                <div className="preview-placeholder-content">
+                                  <div className="preview-placeholder-icon">▶</div>
+                                  <div className="preview-placeholder-text">
+                                    {formatTime(card.start)} - {formatTime(card.end)}
                                   </div>
-                                ) : hoveredCommunityId === card.id ? (
-                                  <div className="loading-indicator">
-                                    <div className="spinner"></div>
-                                    <div className="loading-text">
-                                      播放器加载中...
-                                      <span className="loading-time" key={loadTick}>
-                                        {(getCommunityLoadingTime(card.id, 'webview') / 1000).toFixed(1)}s
-                                        </span>
-                                    </div>
-                                  </div>
-                                ) : '悬停预览'}
+                                </div>
                               </div>
                             )}
-                            {communityLoadingState.get(card.id) && (
+                            {communityLoadingState.get(card.id)?.webviewLoading && webviewCommunityIds.has(card.id) && (
+                              <div className="preview-overlay">
+                                <div className="loading-indicator">
+                                  <div className="spinner"></div>
+                                  <div className="loading-text">
+                                    预览加载中...
+                                    <span className="loading-time" key={loadTick}>
+                                      {(getCommunityLoadingTime(card.id, 'webview') / 1000).toFixed(1)}s
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                            </div>
+                            {communityLoadingState.get(card.id)?.webviewLoadTime && (
                               <div className="loading-debug" key={loadTick}>
-                                <div>封面: {communityLoadingState.get(card.id).coverLoadTime ? communityLoadingState.get(card.id).coverLoadTime.toFixed(0) + 'ms' : communityLoadingState.get(card.id).coverLoading ? getCommunityLoadingTime(card.id, 'cover').toFixed(0) + 'ms' : 'N/A'}</div>
-                                <div>播放器: {communityLoadingState.get(card.id).webviewLoadTime ? communityLoadingState.get(card.id).webviewLoadTime.toFixed(0) + 'ms' : communityLoadingState.get(card.id).webviewLoading ? getCommunityLoadingTime(card.id, 'webview').toFixed(0) + 'ms' : 'N/A'}</div>
+                                <div>预览: {communityLoadingState.get(card.id).webviewLoadTime.toFixed(0)}ms</div>
                               </div>
                             )}
                           </div>
@@ -3601,18 +3576,10 @@ export default function App() {
                               >
                                 套用标签
                               </button>
-                              <button
-                                type="button"
-                                className="ghost"
-                                onClick={() => handlePreviewExternalCard(card)}
-                              >
-                                预览
-                              </button>
                             </div>
                           </div>
                         </div>
-                      );
-                      })
+                      ))
                     ) : (
                       <div className="tag-empty">暂无结果。</div>
                     )}
@@ -3626,6 +3593,49 @@ export default function App() {
     />
   </Routes>
       </main>
+      {detailCard && (
+        <div className="modal-backdrop" role="presentation" onClick={handleCloseDetail}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">卡片详情</div>
+              <button className="modal-close" onClick={handleCloseDetail}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="detail-section">
+                <div className="detail-label">标题</div>
+                <div className="detail-value">{detailCard.title || "未命名"}</div>
+              </div>
+              <div className="detail-section">
+                <div className="detail-label">BV号</div>
+                <div className="detail-value">{detailCard.bvid || "-"}</div>
+              </div>
+              <div className="detail-section">
+                <div className="detail-label">时间区间</div>
+                <div className="detail-value">
+                  {formatTime(detailCard.start)} - {formatTime(detailCard.end)}
+                </div>
+              </div>
+              {detailCard.tags && detailCard.tags.length > 0 && (
+                <div className="detail-section">
+                  <div className="detail-label">标签</div>
+                  <div className="detail-value">
+                    {normalizeCardTags(detailCard.tags).join(" / ")}
+                  </div>
+                </div>
+              )}
+              {detailCard.notes && (
+                <div className="detail-section">
+                  <div className="detail-label">备注</div>
+                  <div className="detail-value">{detailCard.notes}</div>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="primary" onClick={handleCloseDetail}>关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showCommunityAuth ? (
         <div className="modal-backdrop" role="presentation">
           <div className="modal">
