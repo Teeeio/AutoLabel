@@ -34,3 +34,12 @@ contextBridge.exposeInMainWorld("auth", {
   clearCookie: () => ipcRenderer.invoke("auth:cookie:clear"),
   logout: () => ipcRenderer.invoke("auth:logout")
 });
+
+contextBridge.exposeInMainWorld("localVideo", {
+  selectFolder: () => ipcRenderer.invoke("local-video:select-folder"),
+  scanFolder: (folderPath) => ipcRenderer.invoke("local-video:scan-folder", folderPath),
+  checkExists: (filePath) => ipcRenderer.invoke("local-video:check-exists", filePath),
+  getMetadata: (filePath) => ipcRenderer.invoke("local-video:get-metadata", filePath),
+  getInfoQuick: (filePath) => ipcRenderer.invoke("local-video:get-info-quick", filePath),
+  load: (filePath) => ipcRenderer.invoke("local-video:load", filePath)
+});

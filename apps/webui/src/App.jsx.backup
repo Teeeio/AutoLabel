@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import "./local-video.css";
 import {
@@ -58,7 +58,7 @@ async function validateCards(cards, mode = 'quick') {
     cardValidator.deepValidate.bind(cardValidator) :
     cardValidator.quickValidate.bind(cardValidator);
 
-  // 批量验证，限制并发数
+  // 批量验证，限制并发数为5
   const concurrency = 5;
   const results = [];
 
@@ -99,20 +99,31 @@ function formatTime(value) {
   const seconds = total % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
-function buildVideoUrl({ bvid, start }) {
+function buildEmbedUrl({ bvid, aid, cid }) {
   if (!bvid) return "";
-  const startTime = Math.max(0, Math.floor(start || 0));
   const params = new URLSearchParams();
-  if (startTime > 0) {
-    params.set("t", String(startTime));
-  }
-  const query = params.toString();
-  return `https://www.bilibili.com/video/${bvid}${query ? `?${query}` : ""}`;
+  params.set("p", "1");
+  if (aid) params.set("aid", aid);
+  if (cid) params.set("cid", cid);
+  return `https://www.bilibili.com/video/${bvid}?${params.toString()}`;
 }
-const buildEmbedUrl = buildVideoUrl;
-function buildCardPreviewUrl({ bvid, start }) {
+function buildCardPreviewUrl({ bvid, start, end }) {
   if (!bvid) return "";
-  return buildVideoUrl({ bvid, start });
+  const params = new URLSearchParams();
+  params.set("bvid", bvid);
+  params.set("autoplay", "0");
+  params.set("muted", "1");
+  params.set("danmaku", "0");
+  params.set("high_quality", "1");
+  params.set("as_wide", "1");
+  params.set("page", "1");
+  if (Number.isFinite(start) && start > 0) {
+    params.set("t", String(Math.floor(start)));
+  }
+  // 添加区间限制到URL
+  const startTime = Math.floor(start || 0);
+  const endTime = Number.isFinite(end) ? Math.floor(end) : undefined;
+  return `https://player.bilibili.com/player.html?${params.toString()}#t=${startTime}`;
 }
 const bilibiliUserAgent =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -203,1832 +214,6 @@ function findSegmentIndex(time, segments) {
   }
   return Math.min(low, segments.length - 1);
 }
-
-// 本地视频播放器组件 - B站风格（完整复制B站注入滑块功能）
-function LocalVideoPlayer({ localPath, localVideoRef, setDuration, setIsPlaying, syncCardRange, activeCard }) {
-  const [videoUrl, setVideoUrl] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setVideoDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [isPlaying, setIsPlayingState] = useState(false);
-  const playbackRateRef = useRef(1);
-  const rangeStartRef = useRef(0);
-  const rangeEndRef = useRef(0);
-  const isPlayingRef = useRef(false);
-  const playerActiveRef = useRef(false);
-  const dragSyncRef = useRef({ pending: false, lastStart: null, lastEnd: null });
-
-  // B站风格时间轴状态 - 完整复制B站注入代码的状态管理
-  const [rangeStart, setRangeStart] = useState(0);
-  const [rangeEnd, setRangeEnd] = useState(0);
-  const [isScrubbing, setIsScrubbing] = useState(false);
-  const [isHovering, setIsHovering] = useState(false);
-  const [hoverPercent, setHoverPercent] = useState(0);
-  const [hoverTime, setHoverTime] = useState(0);
-  const [dragHandle, setDragHandle] = useState(null);
-
-  // 新增：垂直阻尼和自动缩放状态
-  // 将高频更新状态改为ref管理（避免打断RAF循环）
-  const dampStateRef = useRef({
-    scale: 1,
-    width: 1
-  });
-  const [dampScale, setDampScale] = useState(1);
-  const [dampWidth, setDampWidth] = useState(1);
-
-  // 移除zoomScale和showZoomBadge的useState，改用ref管理（完全复制B站）
-  const [showZoomBadge, setShowZoomBadge] = useState(false);
-
-  // Refs - 完全复制B站的拖动状态
-  const timelineRef = useRef(null);
-  const playerSurfaceRef = useRef(null);
-  const timelineBarRef = useRef(null); // 进度条元素的ref
-  const timelineClipRef = useRef(null); // 选区与滑块层，需跟随缩放
-  const clipRootRef = useRef(null);
-  const zoomOverlayRef = useRef(null);
-  const zoomBadgeRef = useRef(null);
-  const zoomBandRef = useRef(null);
-  const clipTipRef = useRef(null);
-  const clipTipImgRef = useRef(null);
-  const clipTipTimeRef = useRef(null);
-  const clipPreviewVideoRef = useRef(null);
-  const clipPreviewCanvasRef = useRef(null);
-  const clipPreviewQueueRef = useRef({ busy: false, pending: null });
-  const clipPreviewLastRef = useRef({ time: null, ts: 0 });
-  const clampActiveRef = useRef(false);
-  const suppressClampRef = useRef(false);
-  const internalLockRef = useRef(false);
-  const keyHoldLocalRef = useRef({
-    key: null,
-    timeout: null,
-    raf: null,
-    long: false,
-    lastRate: 1,
-    lastFrame: null,
-    seekTime: null,
-    wasPlaying: false
-  });
-  const startHandleRef = useRef(null);
-  const endHandleRef = useRef(null);
-  const playheadRef = useRef(null);
-  const currentTimeRef = useRef(currentTime); // 播放头更新用ref
-  const dragRef = useRef({
-    type: null,
-    startX: 0,
-    startY: 0,
-    start: 0,
-    end: 0,
-    targetX: 0,
-    smoothX: 0,
-    damp: 1,
-    grabOffset: 0
-  });
-  const dragRafRef = useRef(null);
-  const wasPlayingRef = useRef(false);
-  const lastRangeStartRef = useRef(0);
-  const rangeEpsilon = 0.05;
-
-  // Zoom相关ref（完全复制B站）
-  const zoomStateRef = useRef({
-    zoomScale: 1,
-    zoomTranslateX: 0,
-    baselineLeft: null,
-    baselineWidth: null,
-    zoomPending: false
-  });
-
-  // 滑块位置ref（RAF中直接更新DOM，避免触发React重渲染）
-  const sliderPosRef = useRef({
-    start: rangeStart,
-    end: rangeEnd
-  });
-
-  // 当activeCard变化时，同步范围
-  useEffect(() => {
-    if (activeCard) {
-      const nextStart = Number.isFinite(activeCard.start) ? activeCard.start : 0;
-      const nextEnd = Number.isFinite(activeCard.end) ? activeCard.end : (duration || 30);
-      setRangeStart(nextStart);
-      setRangeEnd(nextEnd);
-      lastRangeStartRef.current = nextStart;
-
-      // 同步到sliderPosRef
-      sliderPosRef.current.start = nextStart;
-      sliderPosRef.current.end = nextEnd;
-
-      // 如果当前播放位置不在新区间内，修正到新区间的起始位置
-      if (localVideoRef.current) {
-        const current = localVideoRef.current.currentTime;
-        if (current < nextStart || current > nextEnd) {
-          console.log('[范围变化] 播放位置', current, '不在新区间内 [', nextStart, ',', nextEnd, ']，修正到', nextStart);
-          localVideoRef.current.currentTime = nextStart;
-          setCurrentTime(nextStart);
-        }
-      }
-    }
-  }, [activeCard?.id, activeCard?.start, activeCard?.end, duration]);
-
-  useEffect(() => {
-    console.log('[LocalVideoPlayer] 加载视频文件:', localPath);
-    setIsLoading(true);
-    setError(null);
-
-    // 通过 IPC 请求主进程读取视频文
-    window.localVideo?.load(localPath).then((arrayBuffer) => {
-      console.log('[LocalVideoPlayer] 收到视频数据，大小', arrayBuffer.byteLength);
-
-      // 创建 Blob URL
-      const blob = new Blob([arrayBuffer], { type: 'video/mp4' });
-      const url = URL.createObjectURL(blob);
-      console.log('[LocalVideoPlayer] 创建 Blob URL:', url);
-
-      setVideoUrl(url);
-      setIsLoading(false);
-    }).catch((error) => {
-      console.error('[LocalVideoPlayer] 加载视频失败:', error);
-      setError(error.message);
-      setIsLoading(false);
-    });
-  }, [localPath]);
-
-  // ========== B站风格Zoom系统 - 直接DOM操作 ==========
-
-  // 获取时间轴宽度（BgetBaseWidth
-  const getBaseWidth = useCallback(() => {
-    if (!timelineBarRef.current) return null;
-    const width = timelineBarRef.current.offsetWidth;
-    if (Number.isFinite(width) && width > 0) return width;
-    const rect = timelineBarRef.current.getBoundingClientRect();
-    return rect.width || null;
-  }, []);
-
-  // 捕获基准状态（BcaptureBaseline
-  const captureBaseline = useCallback(() => {
-    if (!timelineBarRef.current) return;
-    const rect = timelineBarRef.current.getBoundingClientRect();
-    if (!rect.width) return;
-
-    const { zoomScale, zoomTranslateX, baselineLeft, baselineWidth } = zoomStateRef.current;
-
-    if (zoomScale !== 1) {
-      // 已经在缩放状态，不更新baseline（除非是第一次）
-      if (baselineLeft == null || baselineWidth == null) {
-        zoomStateRef.current.baselineLeft = rect.left - zoomTranslateX;
-        zoomStateRef.current.baselineWidth = rect.width / zoomScale;
-      }
-      return;
-    }
-
-    // 未缩放状态，记录基准
-    zoomStateRef.current.baselineLeft = rect.left;
-    zoomStateRef.current.baselineWidth = rect.width;
-  }, []);
-
-  // 屏幕坐标转基准坐标（BscreenXToBaseX
-  const screenXToBaseX = useCallback((clientX) => {
-    const baseWidth = getBaseWidth();
-    if (!baseWidth) return 0;
-
-    captureBaseline();
-    const { zoomScale, zoomTranslateX, baselineLeft, baselineWidth } = zoomStateRef.current;
-    if (!baselineWidth) return 0;
-
-    const rectLeft = baselineLeft + zoomTranslateX;
-    const scaledWidth = baselineWidth * (zoomScale > 1.001 ? zoomScale : 1);
-    const xScaled = clamp(clientX - rectLeft, 0, scaledWidth);
-
-    if (zoomScale > 1.001) {
-      return clamp(xScaled / zoomScale, 0, baseWidth);
-    }
-    return (xScaled / baselineWidth) * baseWidth;
-  }, [getBaseWidth, captureBaseline]);
-
-  // 基准坐标转屏幕坐标（B站 baseXToScreenX）
-  const baseXToScreenX = useCallback((xBase) => {
-    const baseWidth = getBaseWidth();
-    captureBaseline();
-    if (!baseWidth) return 0;
-
-    const { zoomScale, zoomTranslateX, baselineLeft, baselineWidth } = zoomStateRef.current;
-    if (!baselineWidth) return baselineLeft || 0;
-
-    if (zoomScale > 1.001) {
-      return baselineLeft + zoomTranslateX + xBase * zoomScale;
-    }
-    return baselineLeft + (xBase / baseWidth) * baselineWidth;
-  }, [getBaseWidth, captureBaseline]);
-
-  const baseXToScreenXScaled = useCallback((xBase) => {
-    if (!timelineBarRef.current) return 0;
-    const baseWidth = getBaseWidth();
-    const rect = timelineBarRef.current.getBoundingClientRect();
-    if (!baseWidth || !rect.width) return rect.left || 0;
-    return rect.left + (xBase / baseWidth) * rect.width;
-  }, [getBaseWidth]);
-
-  const getMinSpan = useCallback((currentDuration, baseWidth) => {
-    const zoomAssistRatio = 0;
-    const zoomAssistSeconds = 1;
-    const minSpanMaxSeconds = 1;
-    const minSpanPx = 2;
-    const baseMin = Math.min(
-      currentDuration,
-      minSpanMaxSeconds,
-      Math.max(0.05, currentDuration * zoomAssistRatio, zoomAssistSeconds)
-    );
-    const width = baseWidth || getBaseWidth();
-    const zoomScale = zoomStateRef.current.zoomScale || 1;
-    if (!width || !Number.isFinite(zoomScale) || zoomScale <= 0) return baseMin;
-    const minPxTime = (minSpanPx / (width * Math.max(zoomScale, 1))) * currentDuration;
-    return Math.min(currentDuration, Math.max(baseMin, minPxTime));
-  }, [getBaseWidth]);
-
-  const updateZoomBadgePosition = useCallback(() => {
-    if (!zoomBadgeRef.current || !duration) return;
-    const baseWidth = getBaseWidth();
-    if (!baseWidth) return;
-    const xS = (rangeStart / duration) * baseWidth;
-    const xE = (rangeEnd / duration) * baseWidth;
-    const center = (xS + xE) / 2;
-    const badgeWidth = zoomBadgeRef.current.offsetWidth || 0;
-    const half = badgeWidth ? badgeWidth / 2 : 16;
-    const minX = half;
-    const maxX = Math.max(minX, baseWidth - half);
-    const clamped = clamp(center, minX, maxX);
-    zoomBadgeRef.current.style.left = `${clamped}px`;
-  }, [duration, rangeStart, rangeEnd, getBaseWidth]);
-
-  const requestClipPreview = useCallback((timeValue) => {
-    const video = clipPreviewVideoRef.current;
-    const canvas = clipPreviewCanvasRef.current;
-    const tipImg = clipTipImgRef.current;
-    if (!video || !canvas || !tipImg || !Number.isFinite(timeValue)) return;
-    const currentDuration = duration || video.duration || timeValue;
-    const clamped = clamp(timeValue, 0, currentDuration || timeValue);
-    const now = Date.now();
-    if (
-      clipPreviewLastRef.current.time !== null &&
-      Math.abs(clipPreviewLastRef.current.time - clamped) < 0.05 &&
-      now - clipPreviewLastRef.current.ts < 120
-    ) {
-      return;
-    }
-    clipPreviewLastRef.current.time = clamped;
-    clipPreviewLastRef.current.ts = now;
-    if (clipPreviewQueueRef.current.busy) {
-      clipPreviewQueueRef.current.pending = clamped;
-      return;
-    }
-    clipPreviewQueueRef.current.busy = true;
-    const seekAndDraw = () => {
-      const handleSeeked = () => {
-        const width = 160;
-        const height = 90;
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          try {
-            ctx.drawImage(video, 0, 0, width, height);
-            tipImg.src = canvas.toDataURL("image/jpeg", 0.7);
-            tipImg.style.visibility = "visible";
-          } catch (err) {
-            console.warn("clip preview capture failed", err);
-          }
-        }
-        clipPreviewQueueRef.current.busy = false;
-        const next = clipPreviewQueueRef.current.pending;
-        clipPreviewQueueRef.current.pending = null;
-        if (Number.isFinite(next)) {
-          requestClipPreview(next);
-        }
-      };
-      video.addEventListener("seeked", handleSeeked, { once: true });
-      try {
-        video.currentTime = clamped;
-      } catch {
-        clipPreviewQueueRef.current.busy = false;
-      }
-    };
-    if (video.readyState >= 2) {
-      seekAndDraw();
-    } else {
-      const handleLoaded = () => {
-        video.removeEventListener("loadeddata", handleLoaded);
-        seekAndDraw();
-      };
-      video.addEventListener("loadeddata", handleLoaded);
-    }
-  }, [duration]);
-
-  const showTipAt = useCallback((clientX, timeValue) => {
-    if (!clipTipRef.current || !clipTipTimeRef.current || !timelineBarRef.current) return;
-    const baseWidth = getBaseWidth();
-    if (!baseWidth || !duration) return;
-    const xBase = clamp((timeValue / duration) * baseWidth, 0, baseWidth);
-    const overlayRect = zoomOverlayRef.current?.getBoundingClientRect?.();
-    const anchorScreenX = baseXToScreenXScaled(xBase);
-    const overlayLeft = overlayRect?.left ?? 0;
-    clipTipRef.current.style.left = `${anchorScreenX - overlayLeft}px`;
-    clipTipRef.current.style.display = "block";
-    clipTipTimeRef.current.textContent = formatTime(timeValue);
-    requestClipPreview(timeValue);
-  }, [duration, getBaseWidth, baseXToScreenXScaled, requestClipPreview]);
-
-  const hideTip = useCallback(() => {
-    if (clipTipRef.current) {
-      clipTipRef.current.style.display = "none";
-    }
-  }, []);
-
-  // 设置缩放比例（BsetZoomScale 直接操作DOM
-  const applyZoomScaleToDOM = useCallback((scale, immediate = false) => {
-    if (!timelineBarRef.current || !duration) return;
-
-    const zoomEase = 0.18;
-    const { zoomScale: currentScale } = zoomStateRef.current;
-    const nextScale = immediate ? scale : currentScale + (scale - currentScale) * zoomEase;
-
-    const baseWidth = getBaseWidth();
-    if (!baseWidth) return;
-
-    // 计算锚点（选区中心
-    const anchorTime = (rangeStart + rangeEnd) / 2;
-    const anchorRatio = anchorTime / duration;
-    const anchorX = anchorRatio * baseWidth;
-
-    captureBaseline();
-    const { baselineLeft, baselineWidth } = zoomStateRef.current;
-    const left = baselineLeft ?? timelineBarRef.current.getBoundingClientRect().left;
-
-    zoomStateRef.current.zoomScale = nextScale;
-
-    // 直接操作DOM
-    timelineBarRef.current.style.setProperty("transform-origin", "left center", "important");
-    timelineBarRef.current.style.willChange = "transform";
-    if (timelineClipRef.current) {
-      timelineClipRef.current.style.setProperty("transform-origin", "left center", "important");
-      timelineClipRef.current.style.willChange = "transform";
-    }
-
-    if (nextScale === 1) {
-      timelineBarRef.current.style.removeProperty("transform");
-      if (timelineClipRef.current) {
-        timelineClipRef.current.style.removeProperty("transform");
-      }
-      zoomStateRef.current.zoomTranslateX = 0;
-      console.log('[Zoom] 重置缩放');
-    } else {
-      // 计算translateX保持锚点不变
-      const anchorScreen = (baselineLeft ?? left) +
-        (baselineWidth ? (anchorX / baseWidth) * baselineWidth : anchorX);
-      const translateX = anchorScreen - (baselineLeft ?? left) - anchorX * nextScale;
-      zoomStateRef.current.zoomTranslateX = translateX;
-
-      const transformValue = `translateX(${translateX}px) scaleX(${nextScale})`;
-      timelineBarRef.current.style.setProperty("transform", transformValue, "important");
-      if (timelineClipRef.current) {
-        timelineClipRef.current.style.setProperty("transform", transformValue, "important");
-      }
-
-      console.log('[Zoom] 应用缩放:', {
-        nextScale: nextScale.toFixed(2),
-        translateX: translateX.toFixed(2),
-        transformValue,
-        baseWidth: baseWidth.toFixed(2),
-        anchorX: anchorX.toFixed(2)
-      });
-    }
-
-    // 更新滑块的scale（反比例，滑块保持视觉尺寸）
-    const inverse = nextScale ? 1 / nextScale : 1;
-    if (startHandleRef.current) {
-      startHandleRef.current.style.setProperty("--clip-scale", String(inverse));
-    }
-    if (endHandleRef.current) {
-      endHandleRef.current.style.setProperty("--clip-scale", String(inverse));
-    }
-    const zoomActive = nextScale > 1.02;
-    if (clipRootRef.current) {
-      clipRootRef.current.classList.toggle("__clip_zoomed", zoomActive);
-    }
-    if (zoomOverlayRef.current) {
-      zoomOverlayRef.current.classList.toggle("__clip_zoomed", zoomActive);
-    }
-    if (zoomActive && zoomBadgeRef.current) {
-      zoomBadgeRef.current.textContent = `Zoom x${nextScale.toFixed(1)}`;
-    }
-
-    // ⚠️ 关键：滑块位置始终用未缩放的像素值，因为滑块在缩放层内
-      // 会自动跟随父元素的transform
-    const xS = (rangeStart / duration) * baseWidth;
-    const xE = (rangeEnd / duration) * baseWidth;
-
-    if (startHandleRef.current) {
-      startHandleRef.current.style.left = `${xS}px`;
-    }
-    if (endHandleRef.current) {
-      endHandleRef.current.style.left = `${xE}px`;
-    }
-
-    // 更新选区bar位置
-    const selectionEl = timelineClipRef.current?.querySelector('[data-role="selection"]')
-      ?? timelineBarRef.current?.querySelector('[data-role="selection"]');
-    if (selectionEl) {
-      selectionEl.style.left = `${xS}px`;
-      selectionEl.style.width = `${Math.max(0, xE - xS)}px`;
-    }
-    if (zoomBandRef.current) {
-      zoomBandRef.current.style.left = `${xS}px`;
-      zoomBandRef.current.style.width = `${Math.max(0, xE - xS)}px`;
-    }
-    if (zoomActive) {
-      updateZoomBadgePosition();
-    }
-
-    // Update zoom badge UI
-    setShowZoomBadge(zoomActive);
-  }, [duration, rangeStart, rangeEnd, getBaseWidth, captureBaseline, updateZoomBadgePosition]);
-
-  // Apply auto zoom
-  const applyAutoZoom = useCallback(() => {
-    if (!duration || !timelineBarRef.current) return;
-
-    const { zoomPending, zoomScale } = zoomStateRef.current;
-
-    // Defer zoom while scrubbing
-    if (isScrubbing || dragRef.current.type) {
-      zoomStateRef.current.zoomPending = true;
-      return;
-    }
-
-    const span = Math.max(0.05, rangeEnd - rangeStart);
-    const baseWidth = getBaseWidth();
-    if (!baseWidth) return;
-
-    // 计算选区在进度条上的像素宽度
-    const spanBasePx = Math.max(0.001, (span / duration) * baseWidth);
-
-    // 目标：让40像素代表选区
-    const zoomTargetSpanPx = 40;
-    const zoomMaxScale = 18;
-
-    // 计算需要的缩放比例
-    const targetScale = Math.max(1, Math.min(zoomMaxScale, zoomTargetSpanPx / spanBasePx));
-
-    applyZoomScaleToDOM(targetScale, true);
-  }, [duration, rangeStart, rangeEnd, isScrubbing, getBaseWidth, applyZoomScaleToDOM]);
-
-  // Apply pending zoom after drag
-  const processPendingZoom = useCallback(() => {
-    const { zoomPending } = zoomStateRef.current;
-    if (zoomPending) {
-      zoomStateRef.current.zoomPending = false;
-      applyAutoZoom();
-    }
-  }, [applyAutoZoom]);
-
-  // Handle positions are set by inline left styles
-
-  // Check if time is outside range
-  const isOutsideRange = useCallback(
-    (time) => time < rangeStart - rangeEpsilon || time > rangeEnd + rangeEpsilon,
-    [rangeStart, rangeEnd, rangeEpsilon]
-  );
-
-  // Seek player with range clamp
-  const seekPlayer = useCallback(
-    (timeValue) => {
-      if (!localVideoRef.current) return;
-      // 严格限制在区间范围内
-      const clamped = clamp(timeValue, rangeStart, rangeEnd);
-      setCurrentTime(clamped);
-      localVideoRef.current.currentTime = clamped;
-      console.log('[seekPlayer] 定位', clamped, '(原始:', timeValue, ')');
-    },
-    [rangeStart, rangeEnd]
-  );
-
-  // 安全播放（防止重复播放请求）
-  const safePlay = useCallback(async () => {
-    if (!localVideoRef.current) return;
-    try {
-      await localVideoRef.current.play();
-    } catch (err) {
-      console.error('[LocalVideoPlayer] 播放失败:', err);
-    }
-  }, []);
-
-  // 处理播放/暂停
-  const togglePlay = useCallback(() => {
-    if (!localVideoRef.current) return;
-    if (isPlaying) {
-      localVideoRef.current.pause();
-    } else {
-      localVideoRef.current.play();
-    }
-  }, [isPlaying]);
-
-  // 更新范围状态（同步到App组件）
-  const updateRangeState = useCallback((startValue, endValue) => {
-    setRangeStart(startValue);
-    setRangeEnd(endValue);
-    lastRangeStartRef.current = startValue;
-    // 同步到App组件的card状态
-    if (syncCardRange) {
-      syncCardRange(startValue, endValue);
-    }
-  }, [syncCardRange]);
-
-  // 处理范围变化
-  const handleRangeChange = useCallback((nextStart, nextEnd) => {
-    const maxValue = duration || Math.max(30, rangeEnd, nextEnd);
-    const safeStart = clamp(nextStart, 0, maxValue);
-    const baseWidth = getBaseWidth();
-    const minSpan = getMinSpan(maxValue, baseWidth);
-    const safeEnd = clamp(nextEnd, safeStart + minSpan, maxValue);
-    updateRangeState(safeStart, safeEnd);
-  }, [duration, rangeEnd, updateRangeState, getBaseWidth, getMinSpan]);
-
-  // 定位到指定鼠标位置（使用B站风格坐标转换）
-  const seekTo = useCallback((clientX) => {
-    if (!timelineBarRef.current || !duration) return;
-
-    const baseWidth = getBaseWidth();
-    if (!baseWidth) return;
-
-    // 使用B站风格的坐标转换
-    const xBase = screenXToBaseX(clientX);
-    const ratio = xBase / baseWidth;
-
-    const absoluteTime = ratio * duration;
-    const threshold = Math.min(0.6, duration * 0.01);
-    let clamped = clamp(absoluteTime, rangeStart, rangeEnd);
-    if (Math.abs(clamped - rangeStart) <= threshold) clamped = rangeStart;
-    if (Math.abs(clamped - rangeEnd) <= threshold) clamped = rangeEnd;
-
-    seekPlayer(clamped);
-  }, [duration, rangeStart, rangeEnd, seekPlayer, getBaseWidth, screenXToBaseX]);
-
-  // 开始拖动（完全复制B站的阻尼系统
-  const startScrub = useCallback(
-    (type, clientX, clientY) => {
-      if (!timelineRef.current || !duration) return;
-
-      // 计算滑块抓取偏移
-      const targetRect = type === 'start'
-        ? startHandleRef.current?.getBoundingClientRect()
-        : type === 'end'
-        ? endHandleRef.current?.getBoundingClientRect()
-        : null;
-
-      const grabOffset = targetRect && Number.isFinite(targetRect.left)
-        ? clientX - (targetRect.left + targetRect.width / 2)
-        : 0;
-
-      // 使用sliderPosRef的当前
-      const currentStart = sliderPosRef.current.start;
-      const currentEnd = sliderPosRef.current.end;
-
-      dragRef.current = {
-        type,
-        startX: clientX,
-        startY: clientY,
-        start: currentStart,
-        end: currentEnd,
-        targetX: clientX,
-        smoothX: clientX,
-        damp: 1,
-        grabOffset
-      };
-
-      setIsScrubbing(true);
-      setIsHovering(false);
-      setDragHandle(type === "start" ? "start" : type === "end" ? "end" : null);
-      clampActiveRef.current = false;
-      document.body.style.cursor = "grabbing";
-      suppressClampRef.current = type !== "timeline";
-
-      wasPlayingRef.current = isPlaying;
-
-      // 如果点击时间轴，立即定位
-      if (type === "timeline") {
-        seekTo(clientX);
-      }
-      if (type === "start") {
-        applyZoomScaleToDOM(zoomStateRef.current.zoomScale, true);
-        showTipAt(clientX, currentStart);
-      }
-      if (type === "end") {
-        applyZoomScaleToDOM(zoomStateRef.current.zoomScale, true);
-        showTipAt(clientX, currentEnd);
-      }
-    },
-    [duration, seekTo, isPlaying, setIsPlaying, applyZoomScaleToDOM, showTipAt]
-  );
-
-  // 时间轴鼠标按下处
-  const handleTimelineMouseDown = useCallback((event) => {
-    if (!timelineRef.current || !duration) return;
-
-    const roleTarget = event.target?.closest?.("[data-role]");
-    const role = roleTarget?.dataset?.role || "timeline";
-
-    if (role === "selection") {
-      return;
-    }
-    const type =
-      role === "playhead"
-        ? "playhead"
-        : role === "start-handle"
-          ? "start"
-          : role === "end-handle"
-            ? "end"
-            : "timeline";
-
-    startScrub(type, event.clientX, event.clientY);
-  }, [duration, startScrub]);
-
-  // 开始滑块鼠标按
-  const handleStartHandleMouseDown = useCallback(
-    (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      startScrub("start", event.clientX, event.clientY);
-    },
-    [startScrub]
-  );
-
-  // 结束滑块鼠标按下
-  const handleEndHandleMouseDown = useCallback(
-    (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      startScrub("end", event.clientX, event.clientY);
-    },
-    [startScrub]
-  );
-
-  const clampNow = useCallback(() => {
-    if (suppressClampRef.current || internalLockRef.current) return;
-    if (!localVideoRef.current) return;
-    if (!duration) return;
-    const video = localVideoRef.current;
-    const t = video.currentTime;
-    const EPS = 0.015;
-    if (!video.paused && t >= rangeEnd - EPS) {
-      internalLockRef.current = true;
-      const overshoot = Math.max(0, t - rangeEnd);
-      let nextTime = rangeStart + overshoot;
-      if (nextTime >= rangeEnd - EPS) {
-        nextTime = rangeStart;
-      }
-      video.currentTime = nextTime;
-      if (!video.paused) {
-        video.play().catch(() => {});
-      }
-      requestAnimationFrame(() => {
-        internalLockRef.current = false;
-      });
-      return;
-    }
-    if (t < rangeStart - EPS) {
-      internalLockRef.current = true;
-      video.currentTime = rangeStart;
-      if (!video.paused) {
-        video.play().catch(() => {});
-      }
-      requestAnimationFrame(() => {
-        internalLockRef.current = false;
-      });
-      return;
-    }
-    if (t > rangeEnd + EPS) {
-      internalLockRef.current = true;
-      const overshoot = Math.max(0, t - rangeEnd);
-      let nextTime = rangeStart + overshoot;
-      if (nextTime >= rangeEnd - EPS) {
-        nextTime = rangeStart;
-      }
-      video.currentTime = nextTime;
-      if (!video.paused) {
-        video.play().catch(() => {});
-      }
-      requestAnimationFrame(() => {
-        internalLockRef.current = false;
-      });
-    }
-  }, [duration, rangeStart, rangeEnd]);
-
-  const applyPlaybackRate = useCallback((rate) => {
-    setPlaybackRate(rate);
-    playbackRateRef.current = rate;
-    if (localVideoRef.current) {
-      localVideoRef.current.playbackRate = rate;
-    }
-  }, []);
-
-  useEffect(() => {
-    playbackRateRef.current = playbackRate;
-  }, [playbackRate]);
-  useEffect(() => {
-    rangeStartRef.current = rangeStart;
-    rangeEndRef.current = rangeEnd;
-  }, [rangeStart, rangeEnd]);
-  useEffect(() => {
-    isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
-
-  useEffect(() => {
-    const clearHold = () => {
-      if (keyHoldLocalRef.current.timeout) {
-        clearTimeout(keyHoldLocalRef.current.timeout);
-      }
-      if (keyHoldLocalRef.current.raf) {
-        cancelAnimationFrame(keyHoldLocalRef.current.raf);
-      }
-      keyHoldLocalRef.current.timeout = null;
-      keyHoldLocalRef.current.raf = null;
-      keyHoldLocalRef.current.key = null;
-      keyHoldLocalRef.current.long = false;
-      keyHoldLocalRef.current.lastFrame = null;
-      keyHoldLocalRef.current.seekTime = null;
-      keyHoldLocalRef.current.wasPlaying = false;
-    };
-
-    const startRewindLoop = () => {
-      const speed = 27;
-      const loop = (now) => {
-        if (keyHoldLocalRef.current.key !== "ArrowLeft" || !keyHoldLocalRef.current.long) return;
-        const last = keyHoldLocalRef.current.lastFrame || now;
-        const delta = (now - last) / 1000;
-        keyHoldLocalRef.current.lastFrame = now;
-        const baseTime = Number.isFinite(keyHoldLocalRef.current.seekTime)
-          ? keyHoldLocalRef.current.seekTime
-          : currentTimeRef.current;
-        const updated = clamp(baseTime - delta * speed, rangeStartRef.current, rangeEndRef.current);
-        keyHoldLocalRef.current.seekTime = updated;
-        seekPlayer(updated);
-        keyHoldLocalRef.current.raf = requestAnimationFrame(loop);
-      };
-      keyHoldLocalRef.current.lastFrame = null;
-      keyHoldLocalRef.current.raf = requestAnimationFrame(loop);
-    };
-
-    const handleKeyDown = (event) => {
-      const target = event.target;
-      if (target && (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT" ||
-        target.isContentEditable
-      )) {
-        return;
-      }
-      if (event.repeat) return;
-      if (!playerActiveRef.current) return;
-      if (event.key === " " || event.code === "Space" || event.key === "ArrowRight" || event.key === "ArrowLeft") {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-      if (!localVideoRef.current || !videoUrl) return;
-
-      if (event.key === " " || event.code === "Space") {
-        togglePlay();
-        return;
-      }
-      if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-        if (keyHoldLocalRef.current.key && keyHoldLocalRef.current.key !== event.key) return;
-        if (keyHoldLocalRef.current.key === event.key) return;
-        keyHoldLocalRef.current.key = event.key;
-        keyHoldLocalRef.current.long = false;
-        keyHoldLocalRef.current.timeout = setTimeout(() => {
-          if (keyHoldLocalRef.current.key !== event.key) return;
-          keyHoldLocalRef.current.long = true;
-          keyHoldLocalRef.current.wasPlaying = isPlayingRef.current;
-          if (event.key === "ArrowRight") {
-            keyHoldLocalRef.current.lastRate = playbackRateRef.current || 1;
-            applyPlaybackRate(3);
-            if (!isPlayingRef.current) {
-              safePlay();
-              setIsPlaying(true);
-            }
-          } else {
-            if (localVideoRef.current) {
-              localVideoRef.current.pause();
-              setIsPlayingState(false);
-              setIsPlaying(false);
-            }
-            startRewindLoop();
-          }
-        }, 220);
-      }
-    };
-
-    const handleKeyUp = (event) => {
-      if (playerActiveRef.current && (
-        event.key === "ArrowRight" || event.key === "ArrowLeft" || event.key === " " || event.code === "Space"
-      )) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-      if (keyHoldLocalRef.current.key && keyHoldLocalRef.current.key !== event.key) return;
-      const step = 5;
-      if (!keyHoldLocalRef.current.long) {
-        const delta = event.key === "ArrowRight" ? step : -step;
-        const next = clamp(currentTimeRef.current + delta, rangeStartRef.current, rangeEndRef.current);
-        seekPlayer(next);
-      } else if (event.key === "ArrowRight") {
-        const nextRate = keyHoldLocalRef.current.lastRate || 1;
-        applyPlaybackRate(nextRate);
-        if (!keyHoldLocalRef.current.wasPlaying && localVideoRef.current) {
-          localVideoRef.current.pause();
-          setIsPlayingState(false);
-          setIsPlaying(false);
-        }
-      } else if (event.key === "ArrowLeft") {
-        if (keyHoldLocalRef.current.raf) cancelAnimationFrame(keyHoldLocalRef.current.raf);
-        if (keyHoldLocalRef.current.wasPlaying) {
-          safePlay();
-          setIsPlaying(true);
-        }
-      }
-      clearHold();
-    };
-
-    const handleBlur = () => {
-      if (keyHoldLocalRef.current.key === "ArrowRight" && keyHoldLocalRef.current.long) {
-        const nextRate = keyHoldLocalRef.current.lastRate || 1;
-        applyPlaybackRate(nextRate);
-        if (!keyHoldLocalRef.current.wasPlaying && localVideoRef.current) {
-          localVideoRef.current.pause();
-          setIsPlayingState(false);
-          setIsPlaying(false);
-        }
-      } else if (keyHoldLocalRef.current.key === "ArrowLeft" && keyHoldLocalRef.current.long) {
-        if (keyHoldLocalRef.current.wasPlaying) {
-          safePlay();
-          setIsPlaying(true);
-        }
-      }
-      clearHold();
-    };
-
-    window.addEventListener("keydown", handleKeyDown, true);
-    window.addEventListener("keyup", handleKeyUp, true);
-    window.addEventListener("blur", handleBlur);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown, true);
-      window.removeEventListener("keyup", handleKeyUp, true);
-      window.removeEventListener("blur", handleBlur);
-      clearHold();
-    };
-  }, [
-    videoUrl,
-    seekPlayer,
-    togglePlay,
-    safePlay,
-    applyPlaybackRate
-  ]);
-
-  // 全局拖动处理（完全复制B站的RAF阻尼系统  
-  useEffect(() => {
-    const scheduleDragSync = () => {
-      if (dragSyncRef.current.pending) return;
-      dragSyncRef.current.pending = true;
-      requestAnimationFrame(() => {
-        dragSyncRef.current.pending = false;
-        const nextStart = sliderPosRef.current.start;
-        const nextEnd = sliderPosRef.current.end;
-        if (
-          dragSyncRef.current.lastStart !== nextStart ||
-          dragSyncRef.current.lastEnd !== nextEnd
-        ) {
-          dragSyncRef.current.lastStart = nextStart;
-          dragSyncRef.current.lastEnd = nextEnd;
-          setRangeStart(nextStart);
-          setRangeEnd(nextEnd);
-          lastRangeStartRef.current = nextStart;
-          if (syncCardRange) {
-            syncCardRange(nextStart, nextEnd);
-          }
-        }
-      });
-    };
-
-    // 应用拖动位置（带阻尼平滑）
-    const applyDragAtX = (clientX) => {
-      if (!dragRef.current.type || !timelineBarRef.current) return;
-
-      // 通过ref获取最新值，避免闭包陷阱
-      const currentDuration = duration;
-      if (!currentDuration) return;
-
-      const baseWidth = getBaseWidth();
-      if (!baseWidth) return;
-
-      // 考虑抓取偏移
-      const adjustedX = Number.isFinite(dragRef.current.grabOffset)
-        ? clientX - dragRef.current.grabOffset
-        : clientX;
-
-      // 使用B站风格的坐标转换
-      const xBase = screenXToBaseX(adjustedX);
-      const startBaseX = screenXToBaseX(dragRef.current.startX);
-
-      // 计算delta（基准坐标系中的像素差）
-      const deltaBaseX = xBase - startBaseX;
-      const ratio = deltaBaseX / baseWidth;
-
-      const deltaSeconds = ratio * currentDuration;
-
-      if (dragRef.current.type === "playhead") {
-        seekTo(adjustedX);
-        return;
-      }
-
-      let nextStart = sliderPosRef.current.start;
-      let nextEnd = sliderPosRef.current.end;
-      clampActiveRef.current = false;
-
-      if (dragRef.current.type === "range") {
-        nextStart = dragRef.current.start + deltaSeconds;
-        nextEnd = dragRef.current.end + deltaSeconds;
-        if (nextStart > nextEnd) return;
-      } else if (dragRef.current.type === "start") {
-        const minSpan = getMinSpan(currentDuration, baseWidth);
-        const tRaw = (xBase / baseWidth) * currentDuration;
-        const minTime = nextEnd - minSpan;
-        if (tRaw > minTime) {
-          nextStart = minTime;
-          clampActiveRef.current = true;
-        } else {
-          nextStart = tRaw;
-        }
-        if (nextStart < 0) nextStart = 0;
-        showTipAt(adjustedX, nextStart);
-      } else if (dragRef.current.type === "end") {
-        const minSpan = getMinSpan(currentDuration, baseWidth);
-        const tRaw = (xBase / baseWidth) * currentDuration;
-        const minTime = nextStart + minSpan;
-        if (tRaw < minTime) {
-          nextEnd = minTime;
-          clampActiveRef.current = true;
-        } else {
-          nextEnd = tRaw;
-        }
-        if (nextEnd > currentDuration) nextEnd = currentDuration;
-        showTipAt(adjustedX, nextEnd);
-      }
-
-      // 更新ref（不触发React重渲染）
-      sliderPosRef.current.start = nextStart;
-      sliderPosRef.current.end = nextEnd;
-      scheduleDragSync();
-
-      // ⚠️ 关键：滑块位置用未缩放的像素值（滑块在缩放层内，会自动跟随transform）
-      const xS = (nextStart / currentDuration) * baseWidth;
-      const xE = (nextEnd / currentDuration) * baseWidth;
-
-      if (startHandleRef.current) {
-        startHandleRef.current.style.left = `${xS}px`;
-      }
-      if (endHandleRef.current) {
-        endHandleRef.current.style.left = `${xE}px`;
-      }
-
-      // 更新选区bar
-      const selectionEl = timelineClipRef.current?.querySelector('[data-role="selection"]')
-        ?? timelineBarRef.current?.querySelector('[data-role="selection"]');
-      if (selectionEl) {
-        selectionEl.style.left = `${xS}px`;
-        selectionEl.style.width = `${Math.max(0, xE - xS)}px`;
-      }
-    };
-
-    // RAF阻尼平滑循环（完全复制B站的tickDrag
-    const tickDrag = () => {
-      if (!dragRef.current.type) {
-        dragRafRef.current = null;
-        return;
-      }
-      const delta = dragRef.current.targetX - dragRef.current.smoothX;
-      if (Math.abs(delta) < 0.15) {
-        dragRef.current.smoothX = dragRef.current.targetX;
-      } else {
-        dragRef.current.smoothX += delta * dragRef.current.damp;
-      }
-      applyDragAtX(dragRef.current.smoothX);
-      dragRafRef.current = requestAnimationFrame(tickDrag);
-    };
-
-    const handleMove = (event) => {
-      if (!dragRef.current.type) return;
-
-      // 更新目标X位置
-      dragRef.current.targetX = event.clientX;
-
-      // 计算垂直阻尼（完全复制B站逻辑
-      const maxLift = 200;
-      const lift = clamp(dragRef.current.startY - event.clientY, 0, maxLift);
-      const ratio = lift / maxLift;
-      const eased = 1 - ratio;
-      const damp = (0.02 + 0.98 * eased * eased) / 3;
-      dragRef.current.damp = damp;
-
-      // 更新视觉压缩/拉伸效果（直接操作DOM，不触发React重渲染）
-      const dampNorm = clamp(damp * 3, 0, 1);
-      const compress = clampActiveRef.current ? 1 : 0.7 + 0.3 * dampNorm;
-      const widen = clampActiveRef.current ? 1 : Math.min(1.25, 1 / compress);
-
-      // 更新ref
-      dampStateRef.current.scale = compress;
-      dampStateRef.current.width = widen;
-
-      // 直接更新滑块的CSS变量
-      const activeHandle = dragRef.current.type === "start"
-        ? startHandleRef.current
-        : dragRef.current.type === "end"
-        ? endHandleRef.current
-        : null;
-
-      if (activeHandle) {
-        activeHandle.style.setProperty("--clip-damp-scale", compress.toFixed(3));
-        activeHandle.style.setProperty("--clip-damp-width", widen.toFixed(3));
-      }
-
-      // 启动RAF循环
-      if (!dragRafRef.current) {
-        dragRafRef.current = requestAnimationFrame(tickDrag);
-      }
-    };
-
-    const handleUp = () => {
-      if (dragRef.current.type) {
-        // 取消RAF循环
-        if (dragRafRef.current) {
-          cancelAnimationFrame(dragRafRef.current);
-          dragRafRef.current = null;
-        }
-
-        // 同步到React状态（只触发一次重渲染
-        const finalStart = sliderPosRef.current.start;
-        const finalEnd = sliderPosRef.current.end;
-
-        setRangeStart(finalStart);
-        setRangeEnd(finalEnd);
-        lastRangeStartRef.current = finalStart;
-
-        // 同步到App组件
-        if (syncCardRange) {
-          syncCardRange(finalStart, finalEnd);
-        }
-
-        setIsScrubbing(false);
-        setDragHandle(null);
-
-        // 复位阻尼样式
-        dampStateRef.current.scale = 1;
-        dampStateRef.current.width = 1;
-        if (startHandleRef.current) {
-          startHandleRef.current.style.setProperty("--clip-damp-scale", "1");
-          startHandleRef.current.style.setProperty("--clip-damp-width", "1");
-        }
-        if (endHandleRef.current) {
-          endHandleRef.current.style.setProperty("--clip-damp-scale", "1");
-          endHandleRef.current.style.setProperty("--clip-damp-width", "1");
-        }
-        // 批量同步React状态（只触发一次重渲染）
-        setDampScale(1);
-        setDampWidth(1);
-
-        const startChanged = lastRangeStartRef.current !== rangeStart;
-        const absoluteTime = currentTime;
-        const outOfRange = isOutsideRange(absoluteTime);
-
-        if (startChanged && outOfRange) {
-          seekPlayer(finalStart);
-        }
-
-        if (wasPlayingRef.current) {
-          if (outOfRange) {
-            seekPlayer(finalStart);
-          }
-          safePlay();
-          setIsPlayingState(true);
-          setIsPlaying(true);
-        }
-
-        // 处理待定的缩放（B站逻辑）
-        processPendingZoom();
-      }
-
-      // 重置拖动状态
-      hideTip();
-      document.body.style.cursor = "";
-      suppressClampRef.current = false;
-      clampNow();
-      dragRef.current = {
-        type: null,
-        startX: 0,
-        startY: 0,
-        start: 0,
-        end: 0,
-        targetX: 0,
-        smoothX: 0,
-        damp: 1,
-        grabOffset: 0
-      };
-    };
-
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
-    window.addEventListener("blur", handleUp);
-
-    return () => {
-      if (dragRafRef.current) {
-        cancelAnimationFrame(dragRafRef.current);
-      }
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-      window.removeEventListener("blur", handleUp);
-    };
-  }, [duration, clampNow, syncCardRange]); // 依赖稳定回调与ref读取的最新
-  // Apply auto zoom
-  useEffect(() => {
-    applyAutoZoom();
-  }, [rangeStart, rangeEnd, duration, applyAutoZoom]);
-
-  useEffect(() => {
-    if (!showZoomBadge) return;
-    if (zoomBadgeRef.current) {
-      zoomBadgeRef.current.textContent = `Zoom x${zoomStateRef.current.zoomScale.toFixed(1)}`;
-    }
-    updateZoomBadgePosition();
-  }, [showZoomBadge, updateZoomBadgePosition]);
-
-  useEffect(() => {
-    if (!timelineBarRef.current) return;
-    const observer = new ResizeObserver(() => {
-      zoomStateRef.current.baselineLeft = null;
-      zoomStateRef.current.baselineWidth = null;
-      const baseWidth = getBaseWidth();
-      if (!duration || !baseWidth) return;
-      const xS = (rangeStart / duration) * baseWidth;
-      const xE = (rangeEnd / duration) * baseWidth;
-      if (startHandleRef.current) {
-        startHandleRef.current.style.left = `${xS}px`;
-      }
-      if (endHandleRef.current) {
-        endHandleRef.current.style.left = `${xE}px`;
-      }
-      const selectionEl = timelineClipRef.current?.querySelector('[data-role="selection"]')
-        ?? timelineBarRef.current?.querySelector('[data-role="selection"]');
-      if (selectionEl) {
-        selectionEl.style.left = `${xS}px`;
-        selectionEl.style.width = `${Math.max(0, xE - xS)}px`;
-      }
-      if (zoomBandRef.current) {
-        zoomBandRef.current.style.left = `${xS}px`;
-        zoomBandRef.current.style.width = `${Math.max(0, xE - xS)}px`;
-      }
-      updateZoomBadgePosition();
-    });
-    observer.observe(timelineBarRef.current);
-    return () => observer.disconnect();
-  }, [duration, rangeStart, rangeEnd, getBaseWidth, updateZoomBadgePosition]);
-
-  // 初始化滑块位置（使用像素值，与B站一致）
-  useEffect(() => {
-    if (!duration || !timelineBarRef.current) return;
-
-    const baseWidth = getBaseWidth();
-    if (!baseWidth) return;
-
-    const xS = (rangeStart / duration) * baseWidth;
-    const xE = (rangeEnd / duration) * baseWidth;
-
-    if (startHandleRef.current) {
-      startHandleRef.current.style.left = `${xS}px`;
-    }
-    if (endHandleRef.current) {
-      endHandleRef.current.style.left = `${xE}px`;
-    }
-
-    const selectionEl = timelineClipRef.current?.querySelector('[data-role="selection"]')
-      ?? timelineBarRef.current?.querySelector('[data-role="selection"]');
-    if (selectionEl) {
-      selectionEl.style.left = `${xS}px`;
-      selectionEl.style.width = `${Math.max(0, xE - xS)}px`;
-    }
-    if (zoomBandRef.current) {
-      zoomBandRef.current.style.left = `${xS}px`;
-      zoomBandRef.current.style.width = `${Math.max(0, xE - xS)}px`;
-    }
-
-    // 初始化播放头位置
-    if (playheadRef.current) {
-      const zoomState = zoomStateRef.current;
-      const { zoomScale, zoomTranslateX } = zoomState;
-      const xPUnscaled = (currentTime / duration) * baseWidth;
-      const xPScaled = xPUnscaled * zoomScale + zoomTranslateX;
-      playheadRef.current.style.left = `${xPScaled}px`;
-    }
-    updateZoomBadgePosition();
-  }, [duration, rangeStart, rangeEnd, getBaseWidth]);
-
-  // 同步currentTime到ref（供播放头RAF循环使用
-  useEffect(() => {
-    currentTimeRef.current = currentTime;
-  }, [currentTime]);
-
-  // 播放头位置更新（使用RAF持续更新，但不依赖currentTime避免频繁重建
-  useEffect(() => {
-    if (!duration || !playheadRef.current || !timelineBarRef.current) return;
-
-    let rafId = null;
-    let lastCurrentTime = currentTime;
-
-    const updatePlayhead = () => {
-      if (!playheadRef.current || !timelineBarRef.current) return;
-
-      // 只在currentTime真正变化时更
-      if (currentTimeRef.current !== lastCurrentTime) {
-        lastCurrentTime = currentTimeRef.current;
-
-        const baseWidth = getBaseWidth();
-        if (!baseWidth) return;
-
-        const zoomState = zoomStateRef.current;
-        const { zoomScale, zoomTranslateX } = zoomState;
-        const xPUnscaled = (currentTimeRef.current / duration) * baseWidth;
-        const xPScaled = xPUnscaled * zoomScale + zoomTranslateX;
-        playheadRef.current.style.left = `${xPScaled}px`;
-      }
-
-      rafId = requestAnimationFrame(updatePlayhead);
-    };
-
-    rafId = requestAnimationFrame(updatePlayhead);
-
-    return () => {
-      if (rafId) {
-        cancelAnimationFrame(rafId);
-      }
-    };
-  }, [duration, getBaseWidth]);
-
-  // 时间轴悬停处理（完全复制B站预览）
-  const handleTimelineHover = useCallback((event) => {
-    if (!timelineRef.current || !duration) return;
-    const rect = timelineRef.current.getBoundingClientRect();
-    const computedStyle = window.getComputedStyle(timelineRef.current);
-    const paddingLeft = parseFloat(computedStyle.paddingLeft) || 0;
-    const paddingRight = parseFloat(computedStyle.paddingRight) || 0;
-    const contentWidth = rect.width - paddingLeft - paddingRight;
-    const ratio = clamp((event.clientX - rect.left - paddingLeft) / contentWidth, 0, 1);
-    setHoverPercent(ratio * 100);
-    const absoluteTime = ratio * duration;
-    setHoverTime(absoluteTime);
-    setIsHovering(true);
-  }, [duration]);
-
-  // ========== B站风格时间轴核心函数结束 ==========
-
-  // 当视频时长改变时，初始化范围并确保播放位置在区间
-  useEffect(() => {
-    if (duration > 0 && rangeEnd === 0) {
-      setRangeEnd(duration);
-      lastRangeStartRef.current = rangeStart;
-    }
-
-    // 如果当前播放位置不在区间内，修正到rangeStart
-    if (localVideoRef.current && duration > 0) {
-      const current = localVideoRef.current.currentTime;
-      if (current < rangeStart || current > rangeEnd) {
-        console.log('[位置修正] 当前时间', current, '不在区间[', rangeStart, ',', rangeEnd, ']，修正到', rangeStart);
-        localVideoRef.current.currentTime = rangeStart;
-        setCurrentTime(rangeStart);
-      }
-    }
-  }, [duration, rangeStart, rangeEnd]);
-
-  // 格式化时
-  const formatTime = (seconds) => {
-    if (!seconds || isNaN(seconds)) return '0:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  useEffect(() => {
-    let rafId = null;
-    const tick = () => {
-      clampNow();
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-    };
-  }, [clampNow]);
-
-  // 处理音量变化
-  const handleVolumeChange = (e) => {
-    const vol = parseFloat(e.target.value);
-    setVolume(vol);
-    if (localVideoRef.current) {
-      localVideoRef.current.volume = vol;
-    }
-  };
-
-  // 处理播放速度变化
-  const handleRateChange = (e) => {
-    const rate = parseFloat(e.target.value);
-    setPlaybackRate(rate);
-    if (localVideoRef.current) {
-      localVideoRef.current.playbackRate = rate;
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="player-surface" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: 'white', gap: '20px', background: '#000', borderRadius: '16px' }}>
-        <div style={{ fontSize: '24px' }}>加载视频...</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="player-surface" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ff6b6b', background: '#000', borderRadius: '16px' }}>
-        <div>加载失败: {error}</div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="player-surface"
-      ref={playerSurfaceRef}
-      tabIndex={0}
-      onMouseDown={(event) => {
-        event.currentTarget.focus();
-      }}
-      onTouchStart={(event) => {
-        event.currentTarget.focus();
-      }}
-      onFocusCapture={() => {
-        playerActiveRef.current = true;
-      }}
-      onBlurCapture={() => {
-        playerActiveRef.current = false;
-      }}
-      style={{
-        width: '100%',
-        height: '100%',
-        background: '#000',
-        borderRadius: '16px',
-        overflow: 'hidden',
-        position: 'relative',
-        display: 'flex',
-        flexDirection: 'column'
-      }}
-    >
-      {/* 视频元素 */}
-      <video
-        ref={localVideoRef}
-        src={videoUrl}
-        className="local-video-player"
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          display: 'block',
-          flex: 1
-        }}
-        onLoadedMetadata={() => {
-          if (localVideoRef.current) {
-            console.log('[本地视频] onLoadedMetadata - 时长:', localVideoRef.current.duration);
-            setVideoDuration(localVideoRef.current.duration);
-            setRangeEnd(localVideoRef.current.duration);
-            setDuration(localVideoRef.current.duration);
-
-            // 自动播放
-            console.log("[本地视频] 🎬 开始自动播放");
-            localVideoRef.current.currentTime = rangeStart;
-            localVideoRef.current.play().then(() => {
-              console.log('[本地视频] 自动播放成功');
-              setIsPlayingState(true);
-              setIsPlaying(true);
-            }).catch(err => {
-              console.error('[本地视频] 自动播放失败:', err);
-            });
-          }
-        }}
-        onTimeUpdate={() => {
-          if (localVideoRef.current && dragHandle !== 'playhead') {
-            const current = localVideoRef.current.currentTime;
-            const clamped = clamp(current, rangeStart, rangeEnd);
-            setCurrentTime(clamped);
-          }
-        }}
-        onPlay={() => {
-          console.log('[本地视频] onPlay');
-          setIsPlayingState(true);
-          setIsPlaying(true);
-        }}
-        onPause={() => {
-          console.log('[本地视频] onPause');
-          setIsPlayingState(false);
-          setIsPlaying(false);
-        }}
-        onError={(e) => {
-          console.error('[本地视频] onError:', e);
-        }}
-      />
-
-      {/* B站风格控制栏 */}
-      <div
-        className="player-overlay"
-        style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          background: 'linear-gradient(to top, rgba(12, 14, 18, 0.96) 0%, rgba(12, 14, 18, 0.8) 50%, transparent 100%)',
-          padding: '18px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-          opacity: 1,
-          transition: 'opacity 0.2s ease'
-        }}
-      >
-        {/* 时间- B站风格（完全复制B站预览逻辑*/}
-        <div
-          ref={timelineRef}
-          className="timeline"
-          onMouseDown={handleTimelineMouseDown}
-          onMouseMove={handleTimelineHover}
-          onMouseLeave={() => setIsHovering(false)}
-          style={{
-            position: 'relative',
-            height: '64px',
-            display: 'flex',
-            alignItems: 'center',
-            cursor: 'pointer',
-            userSelect: 'none',
-            overflow: 'visible',
-            padding: '0 18px',
-            pointerEvents: 'auto'
-          }}
-        >
-          {/* 时间轴背景条 - 带zoom变换 */}
-          <div
-            ref={timelineBarRef}
-            className="timeline-bar"
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              height: isScrubbing ? '12px' : '8px',
-              top: '50%',
-              marginTop: isScrubbing ? '-6px' : '-4px', // 垂直居中补偿
-              borderRadius: '999px',
-              background: '#8f98a4',
-              zIndex: 1,
-              transition: isScrubbing ? 'none' : 'height 0.12s ease',
-              // transform 由 applyZoomScaleToDOM 通过 setProperty 动态控制
-              transformOrigin: 'left center',
-              overflow: 'visible' // 允许滑块超出进度条范围
-            }}
-          >
-          </div>
-
-          <div
-            ref={timelineClipRef}
-            className="timeline-clip-layer"
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              height: isScrubbing ? '12px' : '8px',
-              top: '50%',
-              marginTop: isScrubbing ? '-6px' : '-4px',
-              zIndex: 3,
-              overflow: 'visible',
-              pointerEvents: 'auto'
-            }}
-          >
-            {/* B站风格：root覆盖- 覆盖整个缩放*/}
-            <div
-              ref={clipRootRef}
-              className="__clip_root"
-              style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                top: 0,
-                bottom: 0,
-                pointerEvents: 'auto',
-                zIndex: 0
-              }}
-            >
-              <div ref={zoomBandRef} className="__clip_zoom_band" />
-
-              {/* 范围选择 - B站风格：__clip_range */}
-              <div
-                data-role="selection"
-                className="__clip_range"
-                style={{
-                  position: 'absolute',
-                  top: '0',
-                  bottom: '0',
-                  left: '0',
-                  width: '0',
-                  height: '8px',
-                  borderRadius: '999px',
-                  background: 'rgba(64, 196, 255, 0.45)',
-                  boxShadow: '0 0 0 1px rgba(64, 196, 255, 0.75)',
-                  cursor: 'default',
-                  transition: isScrubbing ? 'none' : 'height 0.12s ease, box-shadow 0.12s ease',
-                  // left width JS 动态控制（像素值）
-                  zIndex: 1,
-                  pointerEvents: 'none'
-                }}
-              />
-
-              {/* 开始时间滑块- B站风格：top: -10px（在进度条上方） */}
-              <div
-                ref={startHandleRef}
-                data-role="start-handle"
-                className={`__clip_handle __clip_start${isScrubbing && dragHandle === 'start' ? ' __clip_dragging' : ''}`}
-                style={{
-                  position: 'absolute',
-                  top: '-10px',
-                  pointerEvents: 'auto',
-                  cursor: dragHandle === 'start' ? 'grabbing' : 'grab',
-                  // left JS 动态控制（像素值）
-                  zIndex: 2,
-                  // CSS变量系统：--clip-scale由applyZoomScaleToDOM直接设置
-                  '--clip-damp-width': isScrubbing && dragHandle === 'start' ? dampStateRef.current.width.toFixed(3) : dampWidth.toFixed(3),
-                  '--clip-damp-scale': isScrubbing && dragHandle === 'start' ? dampStateRef.current.scale.toFixed(3) : dampScale.toFixed(3)
-                }}
-                onMouseDown={handleStartHandleMouseDown}
-              />
-
-              {/* 结束时间滑块 - B站风格：top: -10px（在进度条上方） */}
-              <div
-                ref={endHandleRef}
-                data-role="end-handle"
-                className={`__clip_handle __clip_end${isScrubbing && dragHandle === 'end' ? ' __clip_dragging' : ''}`}
-                style={{
-                  position: 'absolute',
-                  top: '-10px',
-                  pointerEvents: 'auto',
-                  cursor: dragHandle === 'end' ? 'grabbing' : 'grab',
-                  // left JS 动态控制（像素值）
-                  zIndex: 2,
-                  // CSS变量系统：--clip-scale由applyZoomScaleToDOM直接设置
-                  '--clip-damp-width': isScrubbing && dragHandle === 'end' ? dampStateRef.current.width.toFixed(3) : dampWidth.toFixed(3),
-                  '--clip-damp-scale': isScrubbing && dragHandle === 'end' ? dampStateRef.current.scale.toFixed(3) : dampScale.toFixed(3)
-                }}
-                onMouseDown={handleEndHandleMouseDown}
-              />
-            </div>
-          </div>
-
-          <div
-            ref={zoomOverlayRef}
-            className="__clip_zoom_overlay"
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              top: 0,
-              bottom: 0,
-              pointerEvents: 'none',
-              zIndex: 4
-            }}
-          >
-            {showZoomBadge && (
-              <div ref={zoomBadgeRef} className="__clip_zoom_badge">
-                Zoom x1.0
-              </div>
-            )}
-            <div
-              ref={clipTipRef}
-              className="__clip_tip"
-              style={{
-                position: 'absolute',
-                bottom: '26px',
-                transform: 'translateX(-50%)',
-                pointerEvents: 'none',
-                display: 'none'
-              }}
-            >
-              <img
-                ref={clipTipImgRef}
-                alt=""
-                style={{
-                  display: 'block',
-                  width: '160px',
-                  height: '90px',
-                  objectFit: 'cover',
-                  borderRadius: '6px',
-                  background: 'rgba(255,255,255,0.12)',
-                  visibility: 'hidden'
-                }}
-              />
-              <div
-                ref={clipTipTimeRef}
-                style={{
-                  marginTop: '6px',
-                  textAlign: 'center',
-                  fontFamily:
-                    'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                  fontWeight: '600'
-                }}
-              />
-            </div>
-          </div>
-
-          {/* 播放- 使用像素定位，避免受timelineBar transform影响 */}
-          <div
-            ref={playheadRef}
-            data-role="playhead"
-            className="timeline-playhead"
-            style={{
-              position: 'absolute',
-              width: '12px',
-              height: '12px',
-              borderRadius: '999px',
-              background: '#ffffff',
-              top: '50%',
-              marginTop: '-6px',
-              cursor: 'ew-resize',
-              pointerEvents: 'auto',
-              border: '2px solid #40c4ff',
-              boxShadow: '0 0 0 4px rgba(64, 196, 255, 0.22)',
-              transition: isScrubbing && dragHandle === 'playhead' ? 'none' : 'transform 0.12s ease, box-shadow 0.12s ease',
-              zIndex: 2,
-              opacity: 1,
-              left: '0',
-              transform: 'translateX(-50%)'
-            }}
-          />
-
-          {/* 时间标签 */}
-          <div
-            className="timeline-label timeline-label-start"
-            style={{
-              position: 'absolute',
-              top: '-24px',
-              fontSize: '12px',
-              color: 'rgba(255, 255, 255, 0.9)',
-              background: 'rgba(0, 0, 0, 0.75)',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              pointerEvents: 'none',
-              whiteSpace: 'nowrap',
-              left: `${(rangeStart / (duration || 1)) * 100}%`,
-              transform: 'translateX(-50%)'
-            }}
-          >
-            {formatTime(rangeStart)}
-          </div>
-          <div
-            className="timeline-label timeline-label-end"
-            style={{
-              position: 'absolute',
-              top: '-24px',
-              fontSize: '12px',
-              color: 'rgba(255, 255, 255, 0.9)',
-              background: 'rgba(0, 0, 0, 0.75)',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              pointerEvents: 'none',
-              whiteSpace: 'nowrap',
-              left: `${(rangeEnd / (duration || 1)) * 100}%`,
-              transform: 'translateX(-50%)'
-            }}
-          >
-            {formatTime(rangeEnd)}
-          </div>
-        </div>
-
-        <video
-          ref={clipPreviewVideoRef}
-          src={videoUrl}
-          muted
-          preload="auto"
-          style={{ display: 'none' }}
-        />
-        <canvas ref={clipPreviewCanvasRef} style={{ display: 'none' }} />
-
-        {/* 控制按钮*/}
-        <div
-          className="player-controls"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '14px',
-            fontSize: '12px',
-            color: 'rgba(244, 242, 238, 0.9)'
-          }}
-        >
-          {/* 左侧：播暂停 + 时间 */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button
-              onClick={togglePlay}
-              className="player-btn"
-              style={{
-                background: 'rgba(255, 255, 255, 0.1)',
-                border: 'none',
-                color: 'rgba(244, 242, 238, 0.9)',
-                cursor: 'pointer',
-                fontSize: '16px',
-                width: '36px',
-                height: '36px',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background 0.2s ease, transform 0.1s ease'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
-            >
-              {isPlaying ? "⏸️" : "▶️"}
-            </button>
-
-            <div className="player-time" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-              <span>{formatTime(currentTime)}</span>
-              <span style={{ opacity: 0.5 }}>/</span>
-              <span>{formatTime(duration)}</span>
-            </div>
-
-            <div className="segment-duration" style={{ fontSize: '12px', opacity: 0.8 }}>
-              片段: {formatTime(rangeEnd - rangeStart)}
-            </div>
-          </div>
-
-          {/* 右侧：音+ 播放速度 */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {/* 音量控制 */}
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.1}
-              value={volume}
-              onChange={handleVolumeChange}
-              className="volume-slider"
-              style={{
-                width: '80px',
-                height: '4px',
-                borderRadius: '2px',
-                cursor: 'pointer',
-                appearance: 'none',
-                background: 'rgba(255, 255, 255, 0.2)'
-              }}
-            />
-
-            {/* 播放速度 */}
-            <select
-              value={playbackRate}
-              onChange={handleRateChange}
-              className="rate-selector"
-              style={{
-                background: 'rgba(255, 255, 255, 0.1)',
-                border: 'none',
-                color: 'rgba(244, 242, 238, 0.9)',
-                borderRadius: '6px',
-                padding: '6px 10px',
-                fontSize: '12px',
-                cursor: 'pointer'
-              }}
-            >
-              <option value={0.5}>0.5x</option>
-              <option value={1}>1x</option>
-              <option value={1.25}>1.25x</option>
-              <option value={1.5}>1.5x</option>
-              <option value={2}>2x</option>
-              <option value={3}>3x</option>
-            </select>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function App() {
   const [cards, setCards] = useState([]);
   const [selection, setSelection] = useState([]);
@@ -2068,8 +253,8 @@ export default function App() {
   const [hoveredCommunityBvid, setHoveredCommunityBvid] = useState("");
   const [manageLoadingState, setManageLoadingState] = useState(new Map());
   const [communityLoadingState, setCommunityLoadingState] = useState(new Map());
-  const [previewCurrentTime, setPreviewCurrentTime] = useState(new Map()); // 跟踪每个预览的当前时
-  const [isDraggingProgress, setIsDraggingProgress] = useState(false); // 跟踪是否正在拖动进度
+  const [previewCurrentTime, setPreviewCurrentTime] = useState(new Map()); // 跟踪每个预览的当前时间
+  const [isDraggingProgress, setIsDraggingProgress] = useState(false); // 跟踪是否正在拖动进度条
   const manageWebviewTimerRef = useRef(null);
   const communityWebviewTimerRef = useRef(null);
 
@@ -2150,33 +335,6 @@ export default function App() {
   const [selectedLocalFile, setSelectedLocalFile] = useState(null); // 选中的本地文件
   const [localVideoFolder, setLocalVideoFolder] = useState(null); // 当前选中的文件夹
   const [localVideoList, setLocalVideoList] = useState([]); // 文件夹中的视频列表
-
-  // 自动打开上次的本地视频文件夹
-  useEffect(() => {
-    const loadLastFolder = async () => {
-      const lastFolder = localStorage.getItem('lastLocalVideoFolder');
-      if (lastFolder) {
-        console.log("[本地视频] 自动打开上次文件夹", lastFolder);
-        setLocalVideoFolder(lastFolder);
-
-        // 扫描文件夹获取视频列表
-        try {
-          const scanResult = await window.localVideo?.scanFolder?.(lastFolder);
-          if (scanResult?.ok && scanResult.files) {
-            setLocalVideoList(scanResult.files);
-            console.log("[本地视频] 自动加载文件夹, 共", scanResult.files.length, "个视频文件");
-          }
-        } catch (error) {
-          console.error("[本地视频] 自动加载文件夹失败", error);
-          // 如果文件夹不存在或无法访问，清除缓存
-          localStorage.removeItem('lastLocalVideoFolder');
-        }
-      }
-    };
-
-    loadLastFolder();
-  }, []); // 只在组件挂载时执行一次
-
   const searchSuggestion = "LoveLive";
   const [searchQuery, setSearchQuery] = useState("");
   const [searchUrl, setSearchUrl] = useState(
@@ -2276,7 +434,7 @@ export default function App() {
 
         // 初始化webview：跳转到start位置并暂停
         const initializeVideo = () => {
-          // 检webview 是否仍然存在DOM 
+          // 检查 webview 是否仍然存在于 DOM 中
           const currentWebview = document.getElementById(webview.id);
           if (!currentWebview) {
             console.log('Webview no longer exists, skipping initialization');
@@ -2292,7 +450,7 @@ export default function App() {
 
               console.log('Initializing video at:', ${startTime}, 'video:', !!video);
 
-              // 隐藏播放器控
+              // 隐藏播放器控件
               if (controller) {
                 controller.style.display = 'none';
               }
@@ -2331,9 +489,9 @@ export default function App() {
                   });
                 }
 
-                // 添加播放范围限制和时间更
+                // 添加播放范围限制和时间更新
                 video.addEventListener('timeupdate', function() {
-                  // 通知父组件更新时
+                  // 通知父组件更新时间
                   if (window.electronIPC) {
                     window.electronIPC.sendMessage('preview-timeupdate', {
                       cardId: '${cardId}',
@@ -2355,7 +513,7 @@ export default function App() {
               }
 
               if (player) {
-                // 只禁用控制栏的点击，保留视频区域的交
+                // 只禁用控制栏的点击，保留视频区域的交互
                 const controlWrap = player.querySelector('.bpx-player-control-wrap');
                 if (controlWrap) {
                   controlWrap.style.pointerEvents = 'none';
@@ -2380,7 +538,7 @@ export default function App() {
         // 再次尝试确保视频已初始化
         setTimeout(initializeVideo, 2000);
 
-        // 标记webview已准备好，用于时间更
+        // 标记webview已准备好，用于时间更新
         let isReadyForTimeUpdate = false;
         let updateInterval = null;
 
@@ -2413,7 +571,7 @@ export default function App() {
           updateInterval = setInterval(updateTime, 500);
         };
 
-        // 等待一段时间后开始更新时
+        // 等待一段时间后开始更新时间
         const readyTimer = setTimeout(() => {
           isReadyForTimeUpdate = true;
           startTimeUpdate();
@@ -2466,7 +624,7 @@ export default function App() {
 
         // 初始化webview：跳转到start位置并暂停
         const initializeVideo = () => {
-          // 检webview 是否仍然存在DOM 
+          // 检查 webview 是否仍然存在于 DOM 中
           const currentWebview = document.getElementById(webview.id);
           if (!currentWebview) {
             console.log('Community webview no longer exists, skipping initialization');
@@ -2482,7 +640,7 @@ export default function App() {
 
               console.log('Initializing community video at:', ${startTime}, 'video:', !!video);
 
-              // 隐藏播放器控
+              // 隐藏播放器控件
               if (controller) {
                 controller.style.display = 'none';
               }
@@ -2535,7 +693,7 @@ export default function App() {
               }
 
               if (player) {
-                // 只禁用控制栏的点击，保留视频区域的交
+                // 只禁用控制栏的点击，保留视频区域的交互
                 const controlWrap = player.querySelector('.bpx-player-control-wrap');
                 if (controlWrap) {
                   controlWrap.style.pointerEvents = 'none';
@@ -2555,7 +713,7 @@ export default function App() {
         // 再次尝试确保视频已初始化
         setTimeout(initializeVideo, 2000);
 
-        // 标记webview已准备好，用于时间更
+        // 标记webview已准备好，用于时间更新
         let isReadyForTimeUpdate = false;
         let updateInterval = null;
 
@@ -2588,7 +746,7 @@ export default function App() {
           updateInterval = setInterval(updateTime, 500);
         };
 
-        // 等待一段时间后开始更新时
+        // 等待一段时间后开始更新时间
         const readyTimer = setTimeout(() => {
           isReadyForTimeUpdate = true;
           startTimeUpdate();
@@ -2614,8 +772,8 @@ export default function App() {
         if (card) {
           const webview = document.getElementById(`community-preview-${card.bvid}`);
           if (webview) {
-            // 移除事件监听不要设置opacity
-            // webview.style.opacity = '0'; // 移除这行,会导致黑
+            // 移除事件监听器,不要设置opacity为0
+            // webview.style.opacity = '0'; // 移除这行,会导致黑屏
           }
         }
       });
@@ -2648,7 +806,7 @@ export default function App() {
 
       // 初始化webview：跳转到start位置并暂停
       const initializeVideo = () => {
-        // 检webview 是否仍然存在DOM 
+        // 检查 webview 是否仍然存在于 DOM 中
         const currentWebview = document.getElementById(webviewId);
         if (!currentWebview) {
           console.log('Detail webview no longer exists, skipping initialization');
@@ -2679,7 +837,7 @@ export default function App() {
             }
 
             if (player) {
-              // 只禁用控制栏的点击，保留视频区域的交
+              // 只禁用控制栏的点击，保留视频区域的交互
               const controlWrap = player.querySelector('.bpx-player-control-wrap');
               if (controlWrap) {
                 controlWrap.style.pointerEvents = 'none';
@@ -2835,9 +993,9 @@ export default function App() {
     [cachedRanges, isSegmentPreview, segmentOffset, segmentSpan, cacheEpsilon]
   );
 
-  // 验证调度器管
+  // 验证调度器管理
   useEffect(() => {
-    // 启动验证调度- 分钟验证一
+    // 启动验证调度器 - 每5分钟验证一次
     validationScheduler.start({
       interval: 5 * 60 * 1000,
       concurrency: 3
@@ -2849,7 +1007,7 @@ export default function App() {
     };
   }, []);
 
-  // 当卡片更新时，更新验证任务
+  // 当卡片更新时,更新验证任务
   useEffect(() => {
     if (cards.length > 0) {
       validationScheduler.addTask(
@@ -2875,7 +1033,7 @@ export default function App() {
     }
   }, [cards]);
 
-  // 当社区搜索结果更新时，更新验证任务
+  // 当社区搜索结果更新时,更新验证任务
   useEffect(() => {
     if (communityCardResults.length > 0) {
       validationScheduler.addTask(
@@ -3560,7 +1718,7 @@ export default function App() {
             bvid,
             status: item.url ? "ready" : "pending",
             url: item.url || "",
-      title: item.title || existing?.title || "加载...",
+      title: item.title || existing?.title || "加载中...",
             duration: resolvedDuration,
             aid: item.aid || "",
             cid: item.cid || "",
@@ -3593,7 +1751,7 @@ export default function App() {
     });
     const previewCard = {
       id: `source-${bvid}`,
-      title: item.title || existing?.title || "加载...",
+      title: item.title || existing?.title || "加载中...",
       start: 0,
       end: resolvedDuration ? Math.min(30, resolvedDuration) : 30,
       bvid,
@@ -3659,7 +1817,7 @@ export default function App() {
   );
   const handleAddCard = async () => {
     if (!communitySession) {
-      setCommunityStatus({ loading: false, error: "请先登录社区账号" });
+      setCommunityStatus({ loading: false, error: "请先登录社区账号。" });
       openCommunityLogin();
       return;
     }
@@ -3668,25 +1826,25 @@ export default function App() {
     const resolvedTitle = (form.title || activeCard?.title || "").trim();
 
     if (!resolvedTitle) {
-      alert("请先输入标题");
+      alert("请先输入标题。");
       return;
     }
 
-    // 验证视频
+    // 验证视频源
     if (sourceType === "bilibili") {
       const rawSource = activeCard?.bvid || form.source || "";
       const bvid = extractBvid(rawSource);
       if (!bvid) {
-        alert("请先选择B站视频");
+        alert("请先选择B站视频。");
         return;
       }
     } else if (sourceType === "local") {
       if (!selectedLocalFile) {
-        alert("请先选择本地视频文件");
+        alert("请先选择本地视频文件。");
         return;
       }
       if (!localVideoInfo) {
-        alert("无法获取本地视频信息");
+        alert("无法获取本地视频信息。");
         return;
       }
     }
@@ -3729,13 +1887,13 @@ export default function App() {
     } catch (err) {
       setCommunityStatus({
         loading: false,
-        error: "服务端未启动或网络异常",
+        error: "服务端未启动或网络异常。",
       });
       return;
     }
 
     if (!result.ok) {
-      setCommunityStatus({ loading: false, error: result.message || "创建失败" });
+      setCommunityStatus({ loading: false, error: result.message || "创建失败。" });
       if (result.message && result.message.includes("not logged in")) {
         openCommunityLogin();
       }
@@ -3749,7 +1907,7 @@ export default function App() {
 
     await loadCommunitySession();
     await refreshCommunitySearch();
-    setSaveNotice("卡片已保存到社区");
+    setSaveNotice("卡片已保存到社区。");
     setCommunityStatus({ loading: false, error: "" });
 
     // 重置表单
@@ -3820,7 +1978,7 @@ export default function App() {
       const cardRes = await getCards();
       const hydratedCards = cardRes.ok ? cardRes.items.map(hydrateCard).filter(Boolean) : [];
 
-      // 快速验证所有卡
+      // 快速验证所有卡片
       const validatedCards = await validateCards(hydratedCards, 'quick');
 
       setCommunityMyCards(validatedCards);
@@ -3838,7 +1996,7 @@ export default function App() {
     });
     const hydratedCards = result.ok ? result.items.map(hydrateCard).filter(Boolean) : [];
 
-    // 快速验证搜索结
+    // 快速验证搜索结果
     const validatedCards = await validateCards(hydratedCards, 'quick');
 
     setCommunityCardResults(validatedCards);
@@ -3847,7 +2005,7 @@ export default function App() {
     setCommunityStatus({ loading: true, error: "" });
     const result = await login(communityLogin);
     if (!result.ok) {
-      setCommunityStatus({ loading: false, error: result.message || "登录失败" });
+      setCommunityStatus({ loading: false, error: result.message || "登录失败。" });
       return;
     }
     setCommunitySession(result.user || null);
@@ -3861,7 +2019,7 @@ export default function App() {
     setCommunityStatus({ loading: true, error: "" });
     const result = await register(communityLogin);
     if (!result.ok) {
-      setCommunityStatus({ loading: false, error: result.message || "注册失败" });
+      setCommunityStatus({ loading: false, error: result.message || "注册失败。" });
       return;
     }
     setCommunityStatus({ loading: false, error: "" });
@@ -3877,7 +2035,7 @@ export default function App() {
   };
   const handleToggleCardVisibility = async (card) => {
     if (!communitySession || !card) {
-      setCommunityStatus({ loading: false, error: "请先登录社区账号" });
+      setCommunityStatus({ loading: false, error: "请先登录社区账号。" });
       openCommunityLogin();
       return;
     }
@@ -3925,7 +2083,7 @@ export default function App() {
   };
   const handleBulkVisibility = async (visibility) => {
     if (!communitySession) {
-      setCommunityStatus({ loading: false, error: "请先登录社区账号" });
+      setCommunityStatus({ loading: false, error: "请先登录社区账号。" });
       openCommunityLogin();
       return;
     }
@@ -3990,7 +2148,7 @@ export default function App() {
   const handleLogin = async () => {
     if (!window.auth) {
       setAuthStatus("unavailable");
-      alert("无法登录");
+      alert("无法登录。");
       return;
     }
     setAuthStatus("logging in");
@@ -4007,7 +2165,7 @@ export default function App() {
       }
     } catch (err) {
       setAuthStatus("not logged in");
-      alert(err?.message || "登录失败");
+      alert(err?.message || "登录失败。");
     }
   };
   const handleBiliLogout = async () => {
@@ -4057,16 +2215,15 @@ export default function App() {
     setIsResolving(true);
     resolvingRef.current = true;
     try {
-      const nextUrl = buildVideoUrl({
+      const nextUrl = buildEmbedUrl({
         bvid: activeCard.bvid,
-        start: rangeStart
+        aid: activeCard.aid,
+        cid: activeCard.cid
       });
-      const resolvedUrl = activeCard.resolvedUrl || nextUrl;
-      console.log("[预览] 使用地址:", resolvedUrl);
-      setPreviewUrl(resolvedUrl);
+      setPreviewUrl(activeCard.resolvedUrl || nextUrl);
       setIsBuffering(false);
     } catch (err) {
-      setPreviewError(err?.message || "预览加载失败");
+      setPreviewError(err?.message || "预览加载失败。");
     } finally {
       resolvingRef.current = false;
       setIsResolving(false);
@@ -4086,15 +2243,13 @@ export default function App() {
       setPreviewSource(nextCard);
       setActiveId(nextCard.id);
       setPreviewError("");
-      const nextUrl = buildVideoUrl({ bvid: nextCard.bvid, start: startValue });
-      console.log("[预览] 使用地址:", nextUrl);
-      setPreviewUrl(nextUrl);
+      setPreviewUrl(buildEmbedUrl({ bvid: nextCard.bvid, aid: nextCard.aid, cid: nextCard.cid }));
     },
     [updateRangeState]
   );
   const handleOpenCardDetail = useCallback(
     (card) => {
-      // 增加 key 以强制重新创webview
+      // 增加 key 以强制重新创建 webview
       detailWebviewKeyRef.current += 1;
       setDetailCard(card);
     },
@@ -4104,10 +2259,10 @@ export default function App() {
     setDetailCard(null);
     setDetailWebviewLoading(false);
 
-    // 切回卡片制作页面强制刷新整个预览面板
+    // 切回卡片制作页面时,强制刷新整个预览面板
     setPreviewPanelKey(prev => prev + 1);
 
-    // 切回卡片制作页面重置为初始状态（空预览）
+    // 切回卡片制作页面时,重置为初始状态(空预览)
     setPreviewEpoch(prev => prev + 2);
     setActiveId("");
     setPreviewSource(null);
@@ -4154,7 +2309,6 @@ export default function App() {
   }, [previewUrl, useEmbedHijack]);
   useEffect(() => {
     if (!previewUrl) return;
-    console.log("[预览] previewUrl:", previewUrl);
     setIsLoadingPreview(true);
     const timer = setTimeout(() => {
       setIsLoadingPreview(false);
@@ -4166,7 +2320,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [previewUrl]);
 
-  // 当切换回卡片制作页面重新修复webview高度
+  // 当切换回卡片制作页面时,重新修复webview高度
   useEffect(() => {
     if (!previewUrl || !activeId) return;
     const view = webviewRef.current;
@@ -4517,7 +2671,7 @@ export default function App() {
               loader.id = "rdg-search-loading";
               loader.className = "rdg-search-loading is-hidden";
               loader.innerHTML =
-                '<span class="rdg-spinner"></span><span class="rdg-loading-text">加载...</span>';
+                '<span class="rdg-spinner"></span><span class="rdg-loading-text">加载中...</span>';
               list.appendChild(loader);
             }
             const state = window.__rdgSearchState || {
@@ -5240,11 +3394,11 @@ export default function App() {
     const previousPath = previousPathRef.current;
     const currentPath = location.pathname || "/";
 
-    // 只在路径真正变化时执
+    // 只在路径真正变化时执行
     if (previousPath !== currentPath) {
-      // 只在切换到卡片制作页根路径或/builder)时执行
+      // 只在切换到卡片制作页面(根路径或/builder)时执行
       if (currentPath === "/" || currentPath.startsWith("/builder")) {
-      // 只刷新预览栏相关的状态
+        // 只刷新预览栏相关的状态
         setPreviewPanelKey(prev => prev + 1);
         setPreviewEpoch(prev => prev + 1);
         setPreviewUrl("");
@@ -5258,18 +3412,18 @@ export default function App() {
     }
   }, [location.pathname]);
 
-  // 预加载卡片管理的webview - 只预加载 0
+  // 预加载卡片管理的webview - 只预加载前10个
   useEffect(() => {
     // 只在卡片管理页面且未预加载时执行
     if (location.pathname !== "/manage" && location.pathname !== "/") return;
     if (managePreloaded || !cards.length) return;
 
-    // 延迟预加避免阻塞页面渲染
+    // 延迟预加载,避免阻塞页面渲染
     const timer = setTimeout(() => {
       const newIds = new Set(webviewManageIds);
       const newLoadingStates = new Map(manageLoadingState);
 
-      // 只预加载0个卡片避免同时加载太多导致黑屏
+      // 只预加载前10个卡片,避免同时加载太多导致黑屏
       const preloadCount = Math.min(cards.length, 10);
 
       for (let i = 0; i < preloadCount; i++) {
@@ -5291,18 +3445,18 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [location.pathname, cards, managePreloaded]);
 
-  // 预加载社区卡片的webview - 只预加载 0
+  // 预加载社区卡片的webview - 只预加载前10个
   useEffect(() => {
     // 只在社区页面且未预加载时执行
     if (location.pathname !== "/community") return;
     if (communityPreloaded || !communityCardResults.length) return;
 
-    // 延迟预加避免阻塞页面渲染
+    // 延迟预加载,避免阻塞页面渲染
     const timer = setTimeout(() => {
       const newIds = new Set(webviewCommunityIds);
       const newLoadingStates = new Map(communityLoadingState);
 
-      // 只预加载0个卡片避免同时加载太多导致黑屏
+      // 只预加载前10个卡片,避免同时加载太多导致黑屏
       const preloadCount = Math.min(communityCardResults.length, 10);
 
       for (let i = 0; i < preloadCount; i++) {
@@ -5366,18 +3520,18 @@ export default function App() {
                 <div className="login-label">
                   <span className="bili-logo" aria-label="Bilibili" />
                 </div>
-                {isLoggedIn ? (
-                  <div className="login-status is-bili">已登录</div>
-                ) : (
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={handleLogin}
-                    disabled={isLoggingIn || isUnavailable}
-                  >
-                    {isLoggingIn ? "登录中..." : isUnavailable ? "不可用" : "登录"}
-                  </button>
-                )}
+              {isLoggedIn ? (
+                <div className="login-status is-bili">已登录</div>
+              ) : (
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={handleLogin}
+                  disabled={isLoggingIn || isUnavailable}
+                >
+                  {isLoggingIn ? "登录中..." : isUnavailable ? "不可用" : "登录"}
+                </button>
+              )}
               </div>
               <div className="login-block">
                 <div className="login-label">社区</div>
@@ -5386,8 +3540,8 @@ export default function App() {
                 ) : (
                   <button type="button" className="ghost" onClick={openCommunityLogin}>
                     登录
-                  </button>
-                )}
+                </button>
+              )}
               </div>
             </div>
           </div>
@@ -5417,7 +3571,7 @@ export default function App() {
                     onClick={handleBiliLogout}
                     disabled={!isLoggedIn}
                   >
-                    登出B站                 </button>
+                    登出B站                  </button>
                 </div>
               </div>
             ) : null}
@@ -5462,7 +3616,7 @@ export default function App() {
                   </div>
                   <button type="submit">搜索</button>
                 </form>
-                <div className="search-hint">点击结果加入预览</div>
+                <div className="search-hint">点击结果加入预览。</div>
                 <div className="search-frame">
                   <webview
                     ref={searchWebviewRef}
@@ -5477,7 +3631,7 @@ export default function App() {
                   {showSearchOverlay ? (
                     <div className="search-overlay">
                       <div className="search-overlay-spinner" />
-                      <div className="search-overlay-text">加载...</div>
+                      <div className="search-overlay-text">加载中...</div>
                     </div>
                   ) : null}
                 </div>
@@ -5495,9 +3649,6 @@ export default function App() {
                       if (result?.ok && result.folderPath) {
                         setLocalVideoFolder(result.folderPath);
 
-                        // 保存到localStorage
-                        localStorage.setItem('lastLocalVideoFolder', result.folderPath);
-
                         // 扫描文件夹获取视频列表
                         const scanResult = await window.localVideo?.scanFolder?.(result.folderPath);
                         if (scanResult?.ok && scanResult.files) {
@@ -5511,7 +3662,7 @@ export default function App() {
 
                   {localVideoFolder && (
                     <div className="folder-info">
-                      文件夹 {localVideoFolder.split(/[/\\]/).pop()}
+                      文件夹: {localVideoFolder.split(/[/\\]/).pop()}
                     </div>
                   )}
                 </div>
@@ -5533,15 +3684,15 @@ export default function App() {
                               console.log('开始获取元数据...');
                               const metadataPromise = window.localVideo?.getMetadata?.(file.path);
                               const timeoutPromise = new Promise((_, reject) =>
-                                setTimeout(() => reject(new Error('获取元数据超30秒')), 30000)
+                                setTimeout(() => reject(new Error('获取元数据超时(30秒)')), 30000)
                               );
 
                               const metadataResult = await Promise.race([metadataPromise, timeoutPromise]);
-                              console.log('元数据结果', metadataResult);
+                              console.log('元数据结果:', metadataResult);
 
                               if (metadataResult?.ok && metadataResult.metadata) {
                                 const metadata = metadataResult.metadata;
-                                console.log('视频元数据', metadata);
+                                console.log('视频元数据:', metadata);
                                 setLocalVideoInfo(metadata);
 
                                 // 自动设置为activeCard并设置时间范围
@@ -5562,19 +3713,19 @@ export default function App() {
                                 });
                                 console.log('设置预览成功');
                               } else {
-                                console.error('获取元数据失败', metadataResult);
+                                console.error('获取元数据失败:', metadataResult);
                                 alert(`获取视频信息失败: ${metadataResult?.error || '未知错误'}`);
                               }
                             } catch (error) {
-                              console.error('处理视频文件时出错', error);
-                              alert(`处理视频文件时出错 ${error.message}`);
+                              console.error('处理视频文件时出错:', error);
+                              alert(`处理视频文件时出错: ${error.message}`);
                             }
                           }}
                         >
                           <div className="video-file-name">
                             {file.name}
                             {selectedLocalFile?.path === file.path && localVideoInfo === null && (
-                              <span className="loading-text"> (解析...)</span>
+                              <span className="loading-text"> (解析中...)</span>
                             )}
                           </div>
                           <div className="video-file-size">
@@ -5601,17 +3752,201 @@ export default function App() {
             </div>
             {activeCard ? (
               <div className="preview-body">
-                {activeCard.source === "local" && activeCard.localPath ? (
-                  <LocalVideoPlayer
-                    key={activeCard.localPath}
-                    localPath={activeCard.localPath}
-                    localVideoRef={localVideoRef}
-                    setDuration={setDuration}
-                    setIsPlaying={setIsPlaying}
-                    syncCardRange={syncCardRange}
-                    activeCard={activeCard}
-                  />
-                ) : previewUrl ? (
+                {activeCard.source === "local" ? (() => {
+                  const finalUrl = `rdg://local-video/${btoa(unescape(encodeURIComponent(activeCard.localPath))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
+
+                  return (
+                    <div className="player-surface">
+                      <video
+                        ref={localVideoRef}
+                        src={finalUrl}
+                        className="local-video-player"
+                        onTimeUpdate={() => {
+                          if (localVideoRef.current) {
+                            setCurrentTime(localVideoRef.current.currentTime);
+                          }
+                        }}
+                        onLoadedMetadata={() => {
+                          if (localVideoRef.current) {
+                            setDuration(localVideoRef.current.duration);
+                          }
+                        }}
+                        onPlay={() => setIsPlaying(true)}
+                        onPause={() => setIsPlaying(false)}
+                      />
+
+                      {/* 时间轴 - B站风格 */}
+                      <div className="timeline"
+                           onMouseDown={(e) => {
+                             if (!e.currentTarget) return;
+                             const rect = e.currentTarget.getBoundingClientRect();
+                             const percent = (e.clientX - rect.left) / rect.width;
+                             const newTime = percent * duration;
+                             if (localVideoRef.current) {
+                               localVideoRef.current.currentTime = newTime;
+                             }
+                           }}>
+                        <div className="timeline-bar" />
+                        <div className="timeline-selection" style={{
+                          left: `${(rangeStart / (duration || 1)) * 100}%`,
+                          width: `${((rangeEnd - rangeStart) / (duration || 1)) * 100}%`
+                        }} />
+
+                        {/* 开始时间滑块 */}
+                        <div className="range-handle range-handle-start"
+                             style={{ left: `${(rangeStart / (duration || 1)) * 100}%` }}
+                             onMouseDown={(e) => {
+                               if (!e.currentTarget || !e.currentTarget.parentElement) return;
+                               e.stopPropagation();
+                               const handleMouseMove = (moveEvent) => {
+                                 const rect = e.currentTarget.parentElement.getBoundingClientRect();
+                                 const percent = Math.max(0, Math.min(1, (moveEvent.clientX - rect.left) / rect.width));
+                                 const newStart = percent * duration;
+                                 if (newStart < rangeEnd - 0.1) {
+                                   setRangeStart(newStart);
+                                   if (localVideoRef.current) {
+                                     localVideoRef.current.currentTime = newStart;
+                                   }
+                                 }
+                               };
+                               const handleMouseUp = () => {
+                                 document.removeEventListener('mousemove', handleMouseMove);
+                                 document.removeEventListener('mouseup', handleMouseUp);
+                               };
+                               document.addEventListener('mousemove', handleMouseMove);
+                               document.addEventListener('mouseup', handleMouseUp);
+                             }}>
+                          <div className="range-handle-indicator" />
+                        </div>
+
+                        {/* 结束时间滑块 */}
+                        <div className="range-handle range-handle-end"
+                             style={{ left: `${(rangeEnd / (duration || 1)) * 100}%` }}
+                             onMouseDown={(e) => {
+                               if (!e.currentTarget || !e.currentTarget.parentElement) return;
+                               e.stopPropagation();
+                               const handleMouseMove = (moveEvent) => {
+                                 const rect = e.currentTarget.parentElement.getBoundingClientRect();
+                                 const percent = Math.max(0, Math.min(1, (moveEvent.clientX - rect.left) / rect.width));
+                                 const newEnd = percent * duration;
+                                 if (newEnd > rangeStart + 0.1) {
+                                   setRangeEnd(newEnd);
+                                   if (localVideoRef.current) {
+                                     localVideoRef.current.currentTime = newEnd;
+                                   }
+                                 }
+                               };
+                               const handleMouseUp = () => {
+                                 document.removeEventListener('mousemove', handleMouseMove);
+                                 document.removeEventListener('mouseup', handleMouseUp);
+                               };
+                               document.addEventListener('mousemove', handleMouseMove);
+                               document.addEventListener('mouseup', handleMouseUp);
+                             }}>
+                          <div className="range-handle-indicator" />
+                        </div>
+
+                        {/* 播放头 */}
+                        <div className="timeline-playhead"
+                             style={{ left: `${(currentTime / (duration || 1)) * 100}%` }}
+                             onMouseDown={(e) => {
+                               if (!e.currentTarget || !e.currentTarget.parentElement) return;
+                               e.stopPropagation();
+                               const handleMouseMove = (moveEvent) => {
+                                 const rect = e.currentTarget.parentElement.getBoundingClientRect();
+                                 const percent = Math.max(0, Math.min(1, (moveEvent.clientX - rect.left) / rect.width));
+                                 const newTime = percent * duration;
+                                 if (localVideoRef.current) {
+                                   localVideoRef.current.currentTime = newTime;
+                                 }
+                               };
+                               const handleMouseUp = () => {
+                                 document.removeEventListener('mousemove', handleMouseMove);
+                                 document.removeEventListener('mouseup', handleMouseUp);
+                               };
+                               document.addEventListener('mousemove', handleMouseMove);
+                               document.addEventListener('mouseup', handleMouseUp);
+                             }}
+                        />
+
+                        {/* 时间标签 */}
+                        <div className="timeline-label timeline-label-start"
+                             style={{ left: `${(rangeStart / (duration || 1)) * 100}%` }}>
+                          {formatTime(rangeStart)}
+                        </div>
+                        <div className="timeline-label timeline-label-end"
+                             style={{ left: `${(rangeEnd / (duration || 1)) * 100}%` }}>
+                          {formatTime(rangeEnd)}
+                        </div>
+                      </div>
+
+                      {/* 播放器控制栏 - B站风格 */}
+                      <div className="player-overlay">
+                        <div className="player-controls">
+                          {/* 播放/暂停按钮 */}
+                          <button className="player-btn" onClick={() => {
+                            if (localVideoRef.current) {
+                              if (isPlaying) {
+                                localVideoRef.current.pause();
+                              } else {
+                                localVideoRef.current.play();
+                              }
+                            }
+                          }}>
+                            {isPlaying ? '⏸' : '▶️'}
+                          </button>
+
+                          {/* 时间显示 */}
+                          <div className="player-time">
+                            <span>{formatTime(currentTime)}</span>
+                            <span className="time-separator">/</span>
+                            <span>{formatTime(duration)}</span>
+                          </div>
+
+                          {/* 片段时长 */}
+                          <div className="segment-duration">
+                            片段: {formatTime(rangeEnd - rangeStart)}
+                          </div>
+
+                          {/* 音量控制 */}
+                          <input
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.1}
+                            value={volume}
+                            onChange={(e) => {
+                              const vol = parseFloat(e.target.value);
+                              setVolume(vol);
+                              if (localVideoRef.current) {
+                                localVideoRef.current.volume = vol;
+                              }
+                            }}
+                            className="volume-slider"
+                          />
+
+                          {/* 播放速度 */}
+                          <select
+                            value={playbackRate}
+                            onChange={(e) => {
+                              const rate = parseFloat(e.target.value);
+                              setPlaybackRate(rate);
+                              if (localVideoRef.current) {
+                                localVideoRef.current.playbackRate = rate;
+                              }
+                            }}
+                            className="rate-selector"
+                          >
+                            <option value={0.5}>0.5x</option>
+                            <option value={1}>1x</option>
+                            <option value={1.5}>1.5x</option>
+                            <option value={2}>2x</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })() : previewUrl ? (
                   <webview
                     key={`${activeId || "preview"}-${previewEpoch}`}
                     ref={webviewRef}
@@ -5625,12 +3960,12 @@ export default function App() {
                     preload={window.env?.bilibiliPagePreload}
                   />
                 ) : (
-                  <div className="placeholder">解析后播放</div>
+                  <div className="placeholder">解析后播放。</div>
                 )}
                 {isLoadingPreview || isResolving ? (
                   <div className="preview-loading">
                     <div className="preview-loading-spinner" />
-                    <div className="preview-loading-text">预览加载...</div>
+                    <div className="preview-loading-text">预览加载中...</div>
                   </div>
                 ) : null}
                 {previewError && !isLoadingPreview && !isResolving ? (
@@ -5640,7 +3975,7 @@ export default function App() {
                 ) : null}
               </div>
             ) : (
-              <div className="placeholder">点击左侧搜索栏结果加入预览</div>
+              <div className="placeholder">点击左侧搜索栏结果加入预览。</div>
             )}
           </section>
           <section className="panel panel-editor">
@@ -5657,7 +3992,7 @@ export default function App() {
                       <div className="builder-range">
                         {formatTime(rangeStart)} - {formatTime(rangeEnd)}
                       </div>
-                      <div className="builder-hint">拖动预览区间滑块同步</div>
+                      <div className="builder-hint">拖动预览区间滑块同步。</div>
                       <div className="builder-hint">
                         标签来源：{searchSourceType === "bilibili" ? (activeCard ? activeCard.bvid || "未知BV" : "未选择") : (selectedLocalFile?.name || "未选择")}
                       </div>
@@ -5671,7 +4006,7 @@ export default function App() {
                   </div>
                   <div className="builder-grid builder-grid--tags">
                     <div className="builder-card">
-                      <div className="tag-hint">搜索标签用于卡片社区检索展示</div>
+                      <div className="tag-hint">搜索标签用于卡片社区检索展示。</div>
                       <div className="tag-input-row">
                         <input
                           value={tagInput}
@@ -5694,10 +4029,10 @@ export default function App() {
                             </span>
                           ))
                         ) : (
-                          <div className="tag-empty">暂无标签</div>
+                          <div className="tag-empty">暂无标签。</div>
                         )}
                       </div>
-                      <div className="tag-hint">搜索标签用于卡片社区检索展示</div>
+                      <div className="tag-hint">搜索标签用于卡片社区检索展示。</div>
                     </div>
                     <div className="builder-card">
                       <div className="builder-label">剪辑标签</div>
@@ -5735,7 +4070,7 @@ export default function App() {
                         }
                         placeholder="备注"
                       />
-                      <div className="builder-label">可见</div>
+                      <div className="builder-label">可见性</div>
                       <select
                         className="builder-select"
                         value={form.visibility}
@@ -5746,7 +4081,7 @@ export default function App() {
                         <option value="private">私有</option>
                         <option value="public">公开</option>
                       </select>
-                      <div className="builder-hint">私有仅自己可见，公开可跨设备同步</div>
+                      <div className="builder-hint">私有仅自己可见，公开可跨设备同步。</div>
                     </div>
                   </div>
                 </div>
@@ -5767,7 +4102,7 @@ export default function App() {
                         <div key={card.id} className="save-item">
                           <div className="save-item-title">{card.title || "未命名卡片"}</div>
                           <div className="save-item-meta">
-                            {card.bvid} - {formatTime(card.start)}-{formatTime(card.end)}
+                            {card.bvid} 路 {formatTime(card.start)}-{formatTime(card.end)}
                           </div>
                         </div>
                       ))}
@@ -5797,8 +4132,7 @@ export default function App() {
                       <div className="community-meta">{communitySession.username}</div>
                     </div>
                     <button type="button" className="ghost" onClick={handleCommunityLogout}>
-                      退出
-                    </button>
+                      退出                    </button>
                   </div>
                 ) : (
                   <div className="manage-empty">
@@ -5818,7 +4152,7 @@ export default function App() {
                 ) : null}
               </div>
               <div className="manage-section">
-                <div className="manage-section-title">筛</div>
+                <div className="manage-section-title">筛选</div>
                 <div className="manage-filters">
                   <button
                     type="button"
@@ -5847,7 +4181,7 @@ export default function App() {
             <div className="manage-content">
               {!communitySession ? (
                 <div className="manage-alert">
-                  需要登录社区账号才能管理卡片
+                  需要登录社区账号才能管理卡片。
                   <button type="button" className="ghost" onClick={openCommunityLogin}>
                     立即登录
                   </button>
@@ -5863,7 +4197,7 @@ export default function App() {
                 </div>
                 <div className="manage-actions">
                   <button type="button" className="ghost" onClick={handleSelectAllManageTags}>
-                    全                 </button>
+                    全选                  </button>
                   <button type="button" className="ghost" onClick={handleClearManageSelection}>
                     清空
                   </button>
@@ -5929,7 +4263,7 @@ export default function App() {
                                 onMouseEnter={(e) => {
                                   const rect = e.currentTarget.getBoundingClientRect();
                                   const issues = card.validation.issues || [];
-                                  const tooltipText = issues.length > 0 ? issues.join("\n") : "视频源无效";
+                                  const tooltipText = issues.length > 0 ? issues.join('\n') : '视频源无效';
                                   setTooltip({
                                     visible: true,
                                     text: tooltipText,
@@ -5942,7 +4276,7 @@ export default function App() {
                                 }}
                                 title="视频源无效"
                               >
-                                !
+                                ✗
                               </div>
                             )}
                           </div>
@@ -5956,7 +4290,7 @@ export default function App() {
                         onMouseEnter={() => {
                           setHoveredManageId(card.id);
                           setHoveredManageBvid(card.bvid);
-                          // webview已经预加不需要再创建
+                          // webview已经预加载,不需要再创建
                         }}
                         onMouseLeave={() => {
                           setHoveredManageId((prev) => (prev === card.id ? "" : prev));
@@ -5989,7 +4323,7 @@ export default function App() {
                                   height: '100%'
                                 }}
                               />
-                              {/* 底部渐变遮罩 - 防止误点*/}
+                              {/* 底部渐变遮罩 - 防止误点击 */}
                               <div
                                 className="preview-bottom-shield"
                                 onClick={(e) => {
@@ -6001,12 +4335,12 @@ export default function App() {
                                   e.preventDefault();
                                 }}
                               />
-                              {/* 进度*/}
+                              {/* 进度条 */}
                               <div
                                 className="preview-progress-bar"
                                 onMouseDown={(e) => {
                                   e.stopPropagation();
-                                  setIsDraggingProgress(true); // 开始拖
+                                  setIsDraggingProgress(true); // 开始拖动
                                   const progressBar = e.currentTarget;
 
                                   const updateTime = (clientX) => {
@@ -6063,14 +4397,14 @@ export default function App() {
                                   {formatTime(Math.floor((previewCurrentTime.get(card.id) || card.start) - card.start))}
                                 </div>
                                 <div className="preview-range-marker">
-                                  总时长 {formatTime(card.end - card.start)}
+                                  总时长: {formatTime(card.end - card.start)}
                                 </div>
                               </div>
                             </>
                           ) : (
                             <div className="preview-placeholder">
                               <div className="preview-placeholder-content">
-                                <div className="preview-placeholder-icon"></div>
+                                <div className="preview-placeholder-icon">▶</div>
                                 <div className="preview-placeholder-text">
                                   {formatTime(card.start)} - {formatTime(card.end)}
                                 </div>
@@ -6082,7 +4416,7 @@ export default function App() {
                               <div className="loading-indicator">
                                 <div className="spinner"></div>
                                 <div className="loading-text">
-                                  预览加载...
+                                  预览加载中...
                                   <span className="loading-time" key={loadTick}>
                                     {(getLoadingTime(card.id, 'webview') / 1000).toFixed(1)}s
                                   </span>
@@ -6121,7 +4455,7 @@ export default function App() {
                     </div>
                   ))
                 ) : (
-                  <div className="tag-empty">暂无卡片</div>
+                  <div className="tag-empty">暂无卡片。</div>
                 )}
               </div>
             </div>
@@ -6144,7 +4478,7 @@ export default function App() {
                   <div className="builder-label">发现卡片</div>
                   {!communitySession ? (
                     <div className="manage-alert">
-                      登录后可使用社区卡片
+                      登录后可使用社区卡片。
                       <button type="button" className="ghost" onClick={openCommunityLogin}>
                         登录
                       </button>
@@ -6168,8 +4502,8 @@ export default function App() {
                       value={communitySearchSort}
                       onChange={(event) => setCommunitySearchSort(event.target.value)}
                     >
-                      <option value="latest">最</option>
-                      <option value="oldest">最</option>
+                      <option value="latest">最新</option>
+                      <option value="oldest">最旧</option>
                     </select>
                     <button type="button" className="ghost" onClick={refreshCommunitySearch}>
                       搜索
@@ -6204,8 +4538,8 @@ export default function App() {
                                   className="validation-status validation-status-invalid"
                                   onMouseEnter={(e) => {
                                     const rect = e.currentTarget.getBoundingClientRect();
-                                  const issues = card.validation.issues || [];
-                                  const tooltipText = issues.length > 0 ? issues.join("\n") : "视频源无效";
+                                    const issues = card.validation.issues || [];
+                                    const tooltipText = issues.length > 0 ? issues.join('\n') : '视频源无效';
                                     setTooltip({
                                       visible: true,
                                       text: tooltipText,
@@ -6218,7 +4552,7 @@ export default function App() {
                                   }}
                                   title="视频源无效"
                                 >
-                                  !
+                                  ✗
                                 </div>
                               )}
                             </div>
@@ -6228,7 +4562,7 @@ export default function App() {
                             onMouseEnter={() => {
                               setHoveredCommunityId(card.id);
                               setHoveredCommunityBvid(card.bvid);
-                              // webview已经预加不需要再创建
+                              // webview已经预加载,不需要再创建
                             }}
                             onMouseLeave={() => {
                               setHoveredCommunityId((prev) => (prev === card.id ? "" : prev));
@@ -6261,7 +4595,7 @@ export default function App() {
                                       height: '100%'
                                     }}
                                   />
-                                  {/* 底部渐变遮罩 - 防止误点*/}
+                                  {/* 底部渐变遮罩 - 防止误点击 */}
                                   <div
                                     className="preview-bottom-shield"
                                     onClick={(e) => {
@@ -6273,12 +4607,12 @@ export default function App() {
                                       e.preventDefault();
                                     }}
                                   />
-                                  {/* 进度*/}
+                                  {/* 进度条 */}
                                   <div
                                     className="preview-progress-bar"
                                     onMouseDown={(e) => {
                                       e.stopPropagation();
-                                      setIsDraggingProgress(true); // 开始拖
+                                      setIsDraggingProgress(true); // 开始拖动
                                       const progressBar = e.currentTarget;
 
                                       const updateTime = (clientX) => {
@@ -6335,14 +4669,14 @@ export default function App() {
                                       {formatTime(Math.floor((previewCurrentTime.get(card.id) || card.start) - card.start))}
                                     </div>
                                     <div className="preview-range-marker">
-                                      总时长 {formatTime(card.end - card.start)}
+                                      总时长: {formatTime(card.end - card.start)}
                                     </div>
                                   </div>
                                 </>
                               ) : (
                                 <div className="preview-placeholder">
                                   <div className="preview-placeholder-content">
-                                    <div className="preview-placeholder-icon"></div>
+                                    <div className="preview-placeholder-icon">▶</div>
                                     <div className="preview-placeholder-text">
                                       {formatTime(card.start)} - {formatTime(card.end)}
                                     </div>
@@ -6354,7 +4688,7 @@ export default function App() {
                                   <div className="loading-indicator">
                                     <div className="spinner"></div>
                                     <div className="loading-text">
-                                      预览加载...
+                                      预览加载中...
                                       <span className="loading-time" key={loadTick}>
                                         {(getCommunityLoadingTime(card.id, 'webview') / 1000).toFixed(1)}s
                                       </span>
@@ -6386,7 +4720,7 @@ export default function App() {
                         </div>
                       ))
                     ) : (
-                      <div className="tag-empty">暂无结果</div>
+                      <div className="tag-empty">暂无结果。</div>
                     )}
                   </div>
                 </div>
@@ -6428,7 +4762,7 @@ export default function App() {
                           <div className="loading-indicator">
                             <div className="spinner"></div>
                             <div className="loading-text">
-                              预览加载...
+                              预览加载中...
                               <span className="loading-time" key={loadTick}>
                                 {((Date.now() - (detailWebviewLoadStartTime || Date.now())) / 1000).toFixed(1)}s
                               </span>
@@ -6445,7 +4779,7 @@ export default function App() {
                     <div className="detail-value">{detailCard.title || "未命名"}</div>
                   </div>
                   <div className="detail-section">
-                    <div className="detail-label">BV</div>
+                    <div className="detail-label">BV号</div>
                     <div className="detail-value">{detailCard.bvid || "-"}</div>
                   </div>
                   <div className="detail-section">
@@ -6576,5 +4910,3 @@ export default function App() {
     </div>
   );
 }
-
-

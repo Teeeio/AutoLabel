@@ -20,6 +20,14 @@ const {
   applyRawCookieToPartition,
   clearBilibiliSession
 } = require("./auth.cjs");
+const {
+  checkFileExists,
+  selectVideoFolder,
+  scanVideoFiles,
+  selectVideoFile,
+  getVideoMetadata,
+  getVideoInfoQuick
+} = require("./local-video.cjs");
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -123,7 +131,9 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-    mainWindow.webContents.openDevTools({ mode: "detach" });
+    if (!process.env.RDG_DISABLE_DEVTOOLS) {
+      mainWindow.webContents.openDevTools({ mode: "detach" });
+    }
   } else {
     const indexHtml = path.join(__dirname, "..", "..", "..", "webui", "dist", "index.html");
     mainWindow.loadFile(indexHtml);
@@ -216,6 +226,105 @@ ipcMain.handle("auth:logout", async () => {
   return { ok: true };
 });
 
+// 本地视频IPC处理器
+console.log('注册本地视频IPC处理器...');
+ipcMain.handle("local-video:select-folder", async (event) => {
+  console.log('收到 local-video:select-folder 调用');
+  const mainWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!mainWindow) {
+    console.log('无法获取主窗口');
+    return { ok: false, error: "无法获取主窗口" };
+  }
+  try {
+    const folderPath = await selectVideoFolder(mainWindow);
+    if (!folderPath) {
+      return { ok: false, error: "用户取消选择" };
+    }
+    console.log('选择的文件夹:', folderPath);
+    return { ok: true, folderPath };
+  } catch (error) {
+    console.error('选择文件夹失败:', error);
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("local-video:scan-folder", async (event, folderPath) => {
+  try {
+    const files = await scanVideoFiles(folderPath);
+    return { ok: true, files };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("local-video:select-file", async (event) => {
+  const mainWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!mainWindow) {
+    return { ok: false, error: "无法获取主窗口" };
+  }
+  try {
+    const filePath = await selectVideoFile(mainWindow);
+    if (!filePath) {
+      return { ok: false, error: "用户取消选择" };
+    }
+    return { ok: true, filePath };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("local-video:check-exists", async (event, filePath) => {
+  try {
+    const exists = checkFileExists(filePath);
+    return { ok: true, exists };
+  } catch (error) {
+    return { ok: false, error: error.message, exists: false };
+  }
+});
+
+ipcMain.handle("local-video:get-metadata", async (event, filePath) => {
+  try {
+    const metadata = await getVideoMetadata(filePath);
+    return { ok: true, metadata };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("local-video:get-info-quick", async (event, filePath) => {
+  try {
+    const info = await getVideoInfoQuick(filePath);
+    return { ok: true, info };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+// 读取本地视频文件并返回 ArrayBuffer（用于创建 Blob URL）
+ipcMain.handle("local-video:load", async (event, filePath) => {
+  console.log('[IPC Handler] local-video:load 已被调用');
+  try {
+    console.log('[IPC] 收到 loadLocalVideo 请求:', filePath);
+
+    if (!fs.existsSync(filePath)) {
+      console.error('[IPC] 文件不存在:', filePath);
+      throw new Error('文件不存在');
+    }
+
+    // 读取文件为 Buffer
+    const buffer = await fs.promises.readFile(filePath);
+    console.log('[IPC] 文件读取成功，大小:', buffer.length, '字节');
+
+    // 转换为 ArrayBuffer 并返回
+    // 注意：Electron 会自动处理序列化
+    return buffer.buffer; // 返回 ArrayBuffer
+  } catch (error) {
+    console.error('[IPC] 读取视频文件失败:', error);
+    throw error;
+  }
+});
+console.log('[IPC] 注册 local-video:load handler');
+
 ipcMain.on("env:bilibili-preload", (event) => {
   event.returnValue = pathToFileURL(path.join(__dirname, "bilibili-preload.cjs")).toString();
 });
@@ -250,10 +359,104 @@ app.whenReady().then(() => {
     ? setRawCookie(envCookie)
     : getRawCookie().then((rawCookie) => applyRawCookieToPartition(rawCookie));
   hydrateCookies.catch(() => {});
-  protocol.registerFileProtocol("rdg", (request, callback) => {
-    const url = request.url.replace("rdg://preview/", "");
-    const filePath = path.join(previewDir, decodeURIComponent(url));
-    callback({ path: filePath });
+
+  // 使用 protocol.handle 替代 registerFileProtocol 以获得更好的兼容性
+  protocol.handle("rdg", async (request) => {
+    const url = request.url;
+    console.log('[后端] 收到协议请求:', url);
+
+    // 处理本地视频: rdg://local-video/[base64-encoded-file-path]
+    if (url.startsWith("rdg://local-video/")) {
+      try {
+        let base64Path = url.replace("rdg://local-video/", "");
+        console.log('[后端] 提取的Base64字符串:', base64Path);
+        console.log('[后端] Base64长度:', base64Path.length, '模4:', base64Path.length % 4);
+
+        // 修复URL安全的Base64编码(将 - 和 _ 换回 + 和 /)
+        base64Path = base64Path.replace(/-/g, '+').replace(/_/g, '/');
+        console.log('[后端] 恢复标准Base64:', base64Path);
+
+        // 添加必要的填充
+        const paddingNeeded = (4 - (base64Path.length % 4)) % 4;
+        console.log('[后端] 需要填充的字符数:', paddingNeeded);
+        while (base64Path.length % 4) {
+          base64Path += '=';
+        }
+        console.log('[后端] 填充后的Base64:', base64Path);
+
+        // Base64解码后再进行URL解码(因为前端用了encodeURIComponent)
+        const decodedBuffer = Buffer.from(base64Path, 'base64');
+        console.log('[后端] Base64解码后Buffer长度:', decodedBuffer.length);
+        console.log('[后端] Buffer前20字节:', decodedBuffer.toString('utf-8', 0, 20));
+
+        const utf8String = decodedBuffer.toString('utf-8');
+        console.log('[后端] UTF-8字符串:', utf8String);
+
+        const filePath = decodeURIComponent(utf8String);
+        console.log('[后端] URL解码后的最终路径:', filePath);
+
+        // 验证文件是否存在
+        if (!fs.existsSync(filePath)) {
+          console.error('[后端] ❌ 文件不存在:', filePath);
+          return new Response('File not found', {
+            status: 404,
+            headers: { 'Content-Type': 'text/plain' }
+          });
+        }
+
+        console.log('[后端] ✅ 文件存在!');
+
+        // 获取文件扩展名以确定MIME类型
+        const ext = path.extname(filePath).toLowerCase();
+        const mimeTypes = {
+          '.mp4': 'video/mp4',
+          '.mkv': 'video/x-matroska',
+          '.avi': 'video/x-msvideo',
+          '.mov': 'video/quicktime',
+          '.flv': 'video/x-flv',
+          '.wmv': 'video/x-ms-wmv',
+          '.webm': 'video/webm',
+          '.m4v': 'video/mp4'
+        };
+
+        const mimeType = mimeTypes[ext] || 'video/mp4';
+        console.log('[后端] MIME类型:', mimeType);
+        console.log('[后端] 读取文件并返回Response');
+
+        // 读取文件并返回 Response
+        const data = await fs.promises.readFile(filePath);
+        return new Response(data, {
+          headers: {
+            'Content-Type': mimeType,
+            'Access-Control-Allow-Origin': '*',
+            'Content-Length': data.length.toString()
+          }
+        });
+      } catch (error) {
+        console.error('[后端] ❌ 处理本地视频协议时出错:', error);
+        return new Response('Internal Server Error', {
+          status: 500,
+          headers: { 'Content-Type': 'text/plain' }
+        });
+      }
+    }
+
+    // 处理预览文件: rdg://preview/[filename]
+    if (url.startsWith("rdg://preview/")) {
+      const filename = url.replace("rdg://preview/", "");
+      const filePath = path.join(previewDir, decodeURIComponent(filename));
+      const data = await fs.promises.readFile(filePath);
+      return new Response(data, {
+        headers: { 'Content-Type': 'video/mp4' }
+      });
+    }
+
+    // 默认情况
+    console.error('[后端] ❌ 未知的协议请求:', url);
+    return new Response('Bad Request', {
+      status: 400,
+      headers: { 'Content-Type': 'text/plain' }
+    });
   });
   configureMediaHeaders();
   createWindow();

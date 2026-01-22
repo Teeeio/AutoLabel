@@ -1611,6 +1611,131 @@ body {
   min-width: 0;
 }
 
+/* 搜索类型选择器 */
+.search-type-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.search-type-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.search-type-btn:hover {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.search-type-btn.is-active {
+  border-color: #3b82f6;
+  background: #3b82f6;
+  color: white;
+}
+
+/* 本地文件选择器 */
+.local-folder-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.local-folder-section button.ghost {
+  align-self: flex-start;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.local-folder-section button.ghost:hover {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.folder-info {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.local-video-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.video-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.video-file-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.video-file-item:hover {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.video-file-item.is-selected {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.video-file-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  word-break: break-all;
+  min-width: 0;
+}
+
+.loading-text {
+  color: #3b82f6;
+  font-size: 12px;
+  font-weight: normal;
+}
+
+.video-file-size {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .search-input-wrap {
   position: relative;
   flex: 1 1 160px;
@@ -2607,6 +2732,57 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 验证状态指示器 */
+.validation-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: help;
+  transition: all 0.2s ease;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+.validation-status-valid {
+  background: #10b981;
+  color: white;
+}
+
+.validation-status-warning {
+  background: #f59e0b;
+  color: white;
+}
+
+.validation-status-invalid {
+  background: #ef4444;
+  color: white;
+}
+
+.validation-status-error {
+  background: #dc2626;
+  color: white;
+  animation: pulse 1s infinite;
+}
+
+.validation-status-unknown {
+  background: #6b7280;
+  color: white;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .manage-card-meta {

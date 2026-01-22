@@ -1,0 +1,299 @@
+/* 本地视频播放器 - B站风格 */
+
+.player-surface {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-height: 360px; /* 确保有最小高度 */
+}
+
+.local-video-player {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  flex: 1;
+  display: block;
+  min-height: 360px; /* 确保视频元素有最小高度 */
+}
+
+/* 时间轴 - 与B站一致 */
+.timeline {
+  position: relative;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  overflow: visible;
+  pointer-events: auto;
+  padding: 0 18px;
+}
+
+.timeline-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 8px;
+  border-radius: 999px;
+  background: #8f98a4;
+  z-index: auto;
+}
+
+.timeline-selection {
+  position: absolute;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(64, 196, 255, 0.45);
+  box-shadow: 0 0 0 1px rgba(64, 196, 255, 0.75);
+  cursor: grab;
+  transition: height 0.12s ease, box-shadow 0.12s ease;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.timeline-selection:hover {
+  height: 12px;
+}
+
+/* B站风格滑块样式 - 增大尺寸 */
+.__clip_handle {
+  --clip-base-w: 18px;
+  --clip-base-h: 28px;
+  width: calc(var(--clip-base-w) * var(--clip-damp-width, 1));
+  height: calc(var(--clip-base-h) * var(--clip-damp-scale, 1));
+  border-radius: calc(9px * var(--clip-damp-scale, 1));
+  background: linear-gradient(180deg, #e9f7ff 0%, #bfe9ff 100%);
+  border: 2px solid #29b6ff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transform: translateX(-50%) scaleX(var(--clip-scale, 1)) translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform;
+  cursor: grab;
+  transition: width 120ms ease, height 120ms ease, box-shadow 120ms ease;
+}
+
+.__clip_handle:hover {
+  transform: translateX(-50%) scaleX(var(--clip-scale, 1)) translateZ(0);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+.__clip_handle.__clip_dragging {
+  cursor: grabbing;
+}
+
+.__clip_zoom_band {
+  position: absolute;
+  top: -12px;
+  height: 6px;
+  left: 0;
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgba(41, 182, 255, 0.18),
+    rgba(41, 182, 255, 0.08)
+  );
+  border: 1px dashed rgba(41, 182, 255, 0.5);
+  box-shadow: 0 0 0 1px rgba(41, 182, 255, 0.08);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.__clip_zoom_badge {
+  position: absolute;
+  top: -32px;
+  left: 50%;
+  transform: translateX(-50%);
+  transform-origin: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: #0d1b2a;
+  background: rgba(191, 233, 255, 0.95);
+  border: 1px solid rgba(41, 182, 255, 0.6);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.__clip_tip {
+  transform: translateX(-50%);
+  transform-origin: center;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.__clip_root.__clip_zoomed .__clip_zoom_band,
+.__clip_zoom_overlay.__clip_zoomed .__clip_zoom_badge {
+  opacity: 1;
+}
+
+.timeline-playhead {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #ffffff;
+  cursor: ew-resize;
+  pointer-events: auto;
+  border: 2px solid #40c4ff;
+  box-shadow: 0 0 0 10px rgba(64, 196, 255, 0.22);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  z-index: 4;
+  opacity: 1;
+}
+
+.timeline-playhead:hover {
+  transform: translateX(-50%) scale(1.22);
+  box-shadow: 0 0 0 12px rgba(64, 196, 255, 0.28);
+}
+
+.timeline-label {
+  position: absolute;
+  top: -20px;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: rgba(244, 242, 238, 0.9);
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 播放器控制栏 */
+.player-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(12, 14, 18, 0.96) 0%, rgba(12, 14, 18, 0.8) 50%, transparent 100%);
+  padding: 18px;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+  pointer-events: auto;
+}
+
+.player-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 12px;
+  color: rgba(244, 242, 238, 0.9);
+}
+
+.player-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: rgba(244, 242, 238, 0.9);
+  cursor: pointer;
+  font-size: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.player-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: scale(1.05);
+}
+
+.player-btn:active {
+  transform: scale(0.95);
+}
+
+.player-time {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+  color: rgba(244, 242, 238, 0.9);
+  font-size: 13px;
+}
+
+.time-separator {
+  opacity: 0.5;
+}
+
+.segment-duration {
+  font-size: 12px;
+  color: rgba(64, 196, 255, 0.9);
+  background: rgba(64, 196, 255, 0.15);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 80px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(244, 242, 238, 0.9);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.volume-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.volume-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(244, 242, 238, 0.9);
+  cursor: pointer;
+  border: none;
+}
+
+.rate-selector {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(244, 242, 238, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.rate-selector:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.rate-selector option {
+  background: #1a1d23;
+  color: rgba(244, 242, 238, 0.9);
+}
