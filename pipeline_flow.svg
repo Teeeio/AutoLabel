@@ -1,0 +1,180 @@
+<svg width="1200" height="1000" xmlns="http://www.w3.org/2000/svg">
+  <!-- 样式定义 -->
+  <defs>
+    <style>
+      .box { fill: #f0f4f8; stroke: #334155; stroke-width: 2; }
+      .box-process { fill: #dbeafe; stroke: #1e40af; stroke-width: 2; }
+      .box-error { fill: #fee2e2; stroke: #dc2626; stroke-width: 2; }
+      .box-success { fill: #dcfce7; stroke: #16a34a; stroke-width: 2; }
+      .text { font-family: monospace; font-size: 12px; fill: #1e293b; }
+      .text-title { font-family: sans-serif; font-size: 16px; font-weight: bold; fill: #0f172a; }
+      .text-small { font-family: monospace; font-size: 10px; fill: #64748b; }
+      .arrow { stroke: #3b82f6; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .arrow-error { stroke: #ef4444; stroke-width: 2; fill: none; marker-end: url(#arrowhead-error); }
+      .arrow-success { stroke: #22c55e; stroke-width: 2; fill: none; marker-end: url(#arrowhead-success); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#3b82f6" />
+    </marker>
+    <marker id="arrowhead-error" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#ef4444" />
+    </marker>
+    <marker id="arrowhead-success" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#22c55e" />
+    </marker>
+  </defs>
+
+  <!-- 标题 -->
+  <text x="600" y="30" text-anchor="middle" class="text-title">视频生成管道流程图</text>
+
+  <!-- 1. 输入阶段 -->
+  <g transform="translate(50, 60)">
+    <rect x="0" y="0" width="250" height="80" rx="5" class="box-success" />
+    <text x="10" y="20" class="text-title">输入: 卡片列表</text>
+    <text x="10" y="40" class="text">- 本地视频路径</text>
+    <text x="10" y="55" class="text">- 时间范围 (start, end)</text>
+    <text x="10" y="70" class="text">- 音频检测信息</text>
+  </g>
+
+  <!-- 箭头 -->
+  <path d="M 300 100 L 350 100" class="arrow" />
+
+  <!-- 2. 遍历卡片 -->
+  <g transform="translate(350, 60)">
+    <rect x="0" y="0" width="250" height="80" rx="5" class="box" />
+    <text x="10" y="20" class="text-title">遍历每个卡片</text>
+    <text x="10" y="40" class="text">for (card of cards)</text>
+    <text x="10" y="55" class="text">- 获取本地路径</text>
+    <text x="10" y="70" class="text">- 计算裁剪时长</text>
+  </g>
+
+  <!-- 箭头 -->
+  <path d="M 600 100 L 650 100" class="arrow" />
+
+  <!-- 3. 裁剪阶段 -->
+  <g transform="translate(650, 50)">
+    <rect x="0" y="0" width="300" height="150" rx="5" class="box-process" />
+    <text x="10" y="20" class="text-title">步骤 1: 裁剪视频 (clipVideo)</text>
+
+    <!-- 3.1 音频检测 -->
+    <text x="10" y="45" class="text-title">1.1 检测音频流</text>
+    <text x="10" y="60" class="text">→ ffprobe 检测是否有音频</text>
+    <text x="10" y="75" class="text">→ sourceHasAudio = true/false</text>
+
+    <!-- 3.2 尝试流复制 -->
+    <text x="10" y="95" class="text-title">1.2 尝试流复制裁剪</text>
+    <text x="10" y="110" class="text">ffmpeg -ss X -t Y -i input -c copy output</text>
+
+    <!-- 3.3 验证 -->
+    <text x="10" y="130" class="text-title">1.3 验证输出</text>
+    <text x="10" y="145" class="text">检查文件大小 > 1KB && 时长 > 0.5s</text>
+  </g>
+
+  <!-- 箭头向下 -->
+  <path d="M 800 200 L 800 230" class="arrow" />
+
+  <!-- 4. 错误处理 -->
+  <g transform="translate(650, 230)">
+    <rect x="0" y="0" width="300" height="100" rx="5" class="box-error" />
+    <text x="10" y="20" class="text-title">步骤 2: 错误处理</text>
+    <text x="10" y="40" class="text">if (size < 1KB || duration < 0.5s)</text>
+    <text x="10" y="55" class="text">→ 标记 needsReencoding = true</text>
+    <text x="10" y="70" class="text">→ 删除失败的输出文件</text>
+    <text x="10" y="85" class="text">常见原因: yuvj422p 格式不兼容</text>
+  </g>
+
+  <!-- 箭头向下 -->
+  <path d="M 800 330 L 800 360" class="arrow" />
+
+  <!-- 5. 重新编码 -->
+  <g transform="translate(650, 360)">
+    <rect x="0" y="0" width="300" height="120" rx="5" class="box-process" />
+    <text x="10" y="20" class="text-title">步骤 3: 重新编码 (如需)</text>
+
+    <text x="10" y="45" class="text-title">3.1 有音频</text>
+    <text x="10" y="60" class="text">ffmpeg -ss X -t Y -i input -c:v libx264</text>
+    <text x="10" y="75" class="text">       -preset superfast -crf 23 output</text>
+
+    <text x="10" y="95" class="text-title">3.2 无音频 → 添加静音轨道</text>
+    <text x="10" y="110" class="text">ffmpeg -i input -f lavfi -i anullsrc</text>
+  </g>
+
+  <!-- 箭头向左 -->
+  <path d="M 650 420 L 450 420 L 450 450" class="arrow" />
+
+  <!-- 6. 收集片段 -->
+  <g transform="translate(300, 450)">
+    <rect x="0" y="0" width="300" height="80" rx="5" class="box" />
+    <text x="10" y="20" class="text-title">步骤 4: 收集裁剪片段</text>
+    <text x="10" y="40" class="text">clips.push(outputPath)</text>
+    <text x="10" y="55" class="text">所有片段裁剪完成后:</text>
+    <text x="10" y="70" class="text">→ validPaths = [clip1, clip2, ...]</text>
+  </g>
+
+  <!-- 箭头向下 -->
+  <path d="M 450 530 L 450 560" class="arrow" />
+
+  <!-- 7. 拼接阶段 -->
+  <g transform="translate(200, 560)">
+    <rect x="0" y="0" width="500" height="200" rx="5" class="box-process" />
+    <text x="10" y="20" class="text-title">步骤 5: 拼接视频 (stitchVideos)</text>
+
+    <!-- 5.1 创建列表 -->
+    <text x="10" y="45" class="text-title">5.1 创建 concat 列表文件</text>
+    <text x="10" y="60" class="text">concat_list.txt:</text>
+    <text x="10" y="75" class="text">  file '/path/to/clip1.mp4'</text>
+    <text x="10" y="90" class="text">  file '/path/to/clip2.mp4'</text>
+
+    <!-- 5.2 拼接命令 -->
+    <text x="10" y="115" class="text-title">5.2 执行拼接命令</text>
+    <text x="10" y="130" class="text">ffmpeg -f concat -safe 0 -i concat_list.txt</text>
+    <text x="10" y="145" class="text">       -c:v copy              ← 保持不同帧率</text>
+    <text x="10" y="160" class="text">       -c:a aac                ← 音频重编码</text>
+    <text x="10" y="175" class="text">       -ar 48000 -ac 2         ← 统一采样率</text>
+    <text x="10" y="190" class="text">       -fflags +genpts         ← 重新生成PTS</text>
+  </g>
+
+  <!-- 箭头向下 -->
+  <path d="M 450 760 L 450 790" class="arrow-success" />
+
+  <!-- 8. 输出 -->
+  <g transform="translate(300, 790)">
+    <rect x="0" y="0" width="300" height="100" rx="5" class="box-success" />
+    <text x="10" y="20" class="text-title">✅ 输出: 最终视频</text>
+    <text x="10" y="40" class="text">文件: dance_timestamp.mp4</text>
+    <text x="10" y="55" class="text">特性:</text>
+    <text x="10" y="70" class="text">  • 保持不同帧率 (24fps, 25fps)</text>
+    <text x="10" y="85" class="text">  • 音频统一为 48000Hz AAC</text>
+  </g>
+
+  <!-- 右侧说明框 -->
+  <g transform="translate(1000, 200)">
+    <rect x="0" y="0" width="180" height="400" rx="5" fill="#fef3c7" stroke="#d97706" stroke-width="2" />
+    <text x="10" y="20" class="text-title">当前方案特点</text>
+
+    <text x="10" y="45" class="text-title" font-size="14">✅ 优点</text>
+    <text x="10" y="65" class="text">1. 保持不同帧率</text>
+    <text x="10" y="80" class="text">2. 音频时间戳连续</text>
+    <text x="10" y="95" class="text">3. 无停顿帧</text>
+    <text x="10" y="110" class="text">4. 处理速度快</text>
+
+    <text x="10" y="135" class="text-title" font-size="14">⚠️ 已知问题</text>
+    <text x="10" y="155" class="text">- 总时长略长</text>
+    <text x="10" y="170" class="text">  (52s vs 50.36s)</text>
+    <text x="10" y="185" class="text">- 可能有停顿帧</text>
+
+    <text x="10" y="210" class="text-title" font-size="14">🔍 可能原因</text>
+    <text x="10" y="230" class="text">1. +genpts 参数</text>
+    <text x="10" y="245" class="text">   可能导致帧重复</text>
+    <text x="10" y="260" class="text">2. 音频重编码</text>
+    <text x="10" y="275" class="text">   时间戳对齐问题</text>
+    <text x="10" y="290" class="text">3. 裁剪精度</text>
+    <text x="10" y="305" class="text">   关键帧对齐偏差</text>
+
+    <text x="10" y="330" class="text-title" font-size="14">💡 建议</text>
+    <text x="10" y="350" class="text">检查日志中的:</text>
+    <text x="10" y="365" class="text">- 实际裁剪时长</text>
+    <text x="10" y="380" class="text">- 拼接后时长</text>
+    <text x="10" y="395" class="text">- 时间戳信息</text>
+  </g>
+</svg>

@@ -1,0 +1,233 @@
+<svg width="1400" height="1200" xmlns="http://www.w3.org/2000/svg">
+  <!-- 样式定义 -->
+  <defs>
+    <style>
+      .box { fill: #f0f4f8; stroke: #334155; stroke-width: 2; }
+      .box-process { fill: #dbeafe; stroke: #1e40af; stroke-width: 2; }
+      .box-error { fill: #fee2e2; stroke: #dc2626; stroke-width: 2; }
+      .box-success { fill: #dcfce7; stroke: #16a34a; stroke-width: 2; }
+      .box-warning { fill: #fef3c7; stroke: #d97706; stroke-width: 2; }
+      .text { font-family: monospace; font-size: 11px; fill: #1e293b; }
+      .text-title { font-family: sans-serif; font-size: 14px; font-weight: bold; fill: #0f172a; }
+      .text-small { font-family: monospace; font-size: 9px; fill: #64748b; }
+      .arrow { stroke: #3b82f6; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .arrow-error { stroke: #ef4444; stroke-width: 2; fill: none; marker-end: url(#arrowhead-error); }
+      .arrow-success { stroke: #22c55e; stroke-width: 2; fill: none; marker-end: url(#arrowhead-success); }
+      .dashed-line { stroke: #94a3b8; stroke-width: 1; stroke-dasharray: 5,5; fill: none; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#3b82f6" />
+    </marker>
+    <marker id="arrowhead-error" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#ef4444" />
+    </marker>
+    <marker id="arrowhead-success" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#22c55e" />
+    </marker>
+  </defs>
+
+  <!-- 主标题 -->
+  <text x="700" y="25" text-anchor="middle" class="text-title" font-size="18">不同源视频对齐技术细节</text>
+
+  <!-- ==================== 左侧：输入视频 1 ==================== -->
+  <g transform="translate(50, 50)">
+    <rect x="0" y="0" width="280" height="180" rx="5" class="box-success" />
+    <text x="10" y="20" class="text-title">源视频 1 (24fps)</text>
+
+    <text x="10" y="40" class="text-title">视频参数:</text>
+    <text x="10" y="55" class="text">• 帧率: 24 fps</text>
+    <text x="10" y="70" class="text">• 分辨率: 1536x1080</text>
+    <text x="10" y="85" class="text">• 编码: H.264 (yuvj422p)</text>
+    <text x="10" y="100" class="text">• 时长: 4.79 秒</text>
+
+    <text x="10" y="120" class="text-title">音频参数:</text>
+    <text x="10" y="135" class="text">• 编码: 无音频</text>
+    <text x="10" y="150" class="text">• 采样率: N/A</text>
+
+    <text x="10" y="170" class="text-small">关键: 需添加静音轨道</text>
+  </g>
+
+  <!-- ==================== 右侧：输入视频 2 ==================== -->
+  <g transform="translate(1070, 50)">
+    <rect x="0" y="0" width="280" height="180" rx="5" class="box-success" />
+    <text x="10" y="20" class="text-title">源视频 2 (25fps)</text>
+
+    <text x="10" y="40" class="text-title">视频参数:</text>
+    <text x="10" y="55" class="text">• 帧率: 25 fps</text>
+    <text x="10" y="70" class="text">• 分辨率: 1280x720</text>
+    <text x="10" y="85" class="text">• 编码: H.264 (yuv420p)</text>
+    <text x="10" y="100" class="text">• 时长: 45.57 秒</text>
+
+    <text x="10" y="120" class="text-title">音频参数:</text>
+    <text x="10" y="135" class="text">• 编码: AAC</text>
+    <text x="10" y="150" class="text">• 采样率: 48000 Hz</text>
+
+    <text x="10" y="170" class="text-small">关键: 需转换采样率</text>
+  </g>
+
+  <!-- 向下的箭头 -->
+  <path d="M 190 230 L 190 270" class="arrow" />
+  <path d="M 1210 230 L 1210 270" class="arrow" />
+
+  <!-- ==================== 处理阶段 1：裁剪 ==================== -->
+  <g transform="translate(50, 270)">
+    <rect x="0" y="0" width="280" height="200" rx="5" class="box-process" />
+    <text x="10" y="20" class="text-title">步骤 1: 裁剪 + 音频处理</text>
+
+    <text x="10" y="40" class="text-title">1.1 检测色彩空间</text>
+    <text x="10" y="55" class="text">ffprobe -v error -show_entries</text>
+    <text x="10" y="70" class="text">stream=pix_fmt input.mp4</text>
+    <text x="10" y="85" class="text-small">结果: yuvj422p (不兼容 MP4)</text>
+
+    <text x="10" y="105" class="text-title">1.2 添加静音轨道</text>
+    <text x="10" y="120" class="text">ffmpeg -ss 0 -t 4.79 -i input.mp4</text>
+    <text x="10" y="135" class="text">       -f lavfi -i anullsrc=44100</text>
+    <text x="10" y="150" class="text">       -map 0:v -map 1:a</text>
+    <text x="10" y="165" class="text">       -c:v libx264 -pix_fmt yuv420p</text>
+    <text x="10" y="180" class="text">       -c:a aac -b:a 128k</text>
+
+    <text x="10" y="198" class="text-small">输出: 24fps, yuv420p, AAC 44.1kHz</text>
+  </g>
+
+  <g transform="translate(1070, 270)">
+    <rect x="0" y="0" width="280" height="200" rx="5" class="box-process" />
+    <text x="10" y="20" class="text-title">步骤 1: 裁剪 (流复制)</text>
+
+    <text x="10" y="40" class="text-title">1.1 检测色彩空间</text>
+    <text x="10" y="55" class="text">ffprobe -v error -show_entries</text>
+    <text x="10" y="70" class="text">stream=pix_fmt input.mp4</text>
+    <text x="10" y="85" class="text-small">结果: yuv420p (兼容 MP4)</text>
+
+    <text x="10" y="105" class="text-title">1.2 流复制裁剪</text>
+    <text x="10" y="120" class="text">ffmpeg -ss 36.97 -t 45.59</text>
+    <text x="10" y="135" class="text">       -i input.mp4</text>
+    <text x="10" y="150" class="text">       -c copy</text>
+    <text x="10" y="165" class="text">       -avoid_negative_ts 1</text>
+
+    <text x="10" y="185" class="text-title">输出参数:</text>
+    <text x="10" y="198" class="text-small">25fps, yuv420p, AAC 48kHz</text>
+  </g>
+
+  <!-- 向下的箭头 -->
+  <path d="M 190 470 L 190 510" class="arrow" />
+  <path d="M 1210 470 L 1210 510" class="arrow" />
+
+  <!-- ==================== 处理阶段 2：音频统一 ==================== -->
+  <g transform="translate(50, 510)">
+    <rect x="0" y="0" width="280" height="150" rx="5" class="box-warning" />
+    <text x="10" y="20" class="text-title">步骤 2: 音频参数统一</text>
+
+    <text x="10" y="40" class="text-title">问题: 采样率不匹配</text>
+    <text x="10" y="55" class="text">• 视频1: AAC 44100 Hz</text>
+    <text x="10" y="70" class="text">• 视频2: AAC 48000 Hz</text>
+
+    <text x="10" y="90" class="text-title">解决方案: 拼接时统一</text>
+    <text x="10" y="105" class="text">在 concat demuxer 中:</text>
+    <text x="10" y="120" class="text">-c:a aac -ar 48000 -ac 2</text>
+    <text x="10" y="135" class="text-small">强制所有音频转为 48kHz 立体声</text>
+  </g>
+
+  <g transform="translate(1070, 510)">
+    <rect x="0" y="0" width="280" height="150" rx="5" class="box" />
+    <text x="10" y="20" class="text-title">步骤 2: 无需处理</text>
+
+    <text x="10" y="40" class="text-title">当前状态:</text>
+    <text x="10" y="55" class="text">✓ 帧率: 25 fps (保持)</text>
+    <text x="10" y="70" class="text">✓ 色彩: yuv420p (兼容)</text>
+    <text x="10" y="85" class="text">✓ 音频: AAC 48kHz (保持)</text>
+
+    <text x="10" y="105" class="text-title">注意:</text>
+    <text x="10" y="120" class="text">拼接时会重新编码音频</text>
+    <text x="10" y="135" class="text">以确保时间戳连续</text>
+  </g>
+
+  <!-- 向中间汇聚的箭头 -->
+  <path d="M 190 660 L 190 700 L 550 700" class="arrow" />
+  <path d="M 1210 660 L 1210 700 L 850 700" class="arrow" />
+
+  <!-- ==================== 中间：拼接阶段 ==================== -->
+  <g transform="translate(400, 700)">
+    <rect x="0" y="0" width="600" height="250" rx="5" class="box-process" />
+    <text x="10" y="20" class="text-title">步骤 3: 拼接与对齐 (核心)</text>
+
+    <!-- 3.1 创建列表 -->
+    <text x="10" y="45" class="text-title">3.1 创建 concat 列表文件</text>
+    <text x="10" y="60" class="text">concat_list.txt:</text>
+    <rect x="10" y="70" width="580" height="40" fill="#1e293b" />
+    <text x="15" y="82" class="text" fill="#ffffff">file 'C:/Users/.../clip_0.mp4'  (24fps, 4.79s, AAC 44.1kHz)</text>
+    <text x="15" y="95" class="text" fill="#ffffff">file 'C:/Users/.../clip_1.mp4'  (25fps, 45.57s, AAC 48kHz)</text>
+
+    <!-- 3.2 拼接命令 -->
+    <text x="10" y="125" class="text-title">3.2 执行拼接命令</text>
+    <text x="10" y="140" class="text">ffmpeg -f concat -safe 0 -i concat_list.txt \</text>
+    <text x="10" y="155" class="text">       -c:v copy                                    \</text>
+    <text x="10" y="170" class="text">       -c:a aac -ar 48000 -ac 2 -b:a 192k           \</text>
+    <text x="10" y="185" class="text">       -fflags +genpts                             \</text>
+    <text x="10" y="200" class="text">       -movflags +faststart -y output.mp4</text>
+
+    <!-- 3.3 对齐机制 -->
+    <text x="10" y="225" class="text-title">3.3 对齐机制</text>
+    <text x="10" y="240" class="text">• 视频: 流复制，保持原始帧率 (24fps, 25fps)</text>
+    <text x="320" y="240" class="text">• 音频: 重编码，统一为 48kHz AAC</text>
+  </g>
+
+  <!-- 向下的箭头 -->
+  <path d="M 700 950 L 700 990" class="arrow-success" />
+
+  <!-- ==================== 底部：输出结果 ==================== -->
+  <g transform="translate(400, 990)">
+    <rect x="0" y="0" width="600" height="180" rx="5" class="box-success" />
+    <text x="10" y="20" class="text-title">✅ 输出视频 (对齐后)</text>
+
+    <!-- 左侧：预期结果 -->
+    <text x="10" y="45" class="text-title">预期结果:</text>
+    <text x="10" y="60" class="text">• 总时长: 4.79s + 45.57s = 50.36s</text>
+    <text x="10" y="75" class="text">• 帧率: 变帧率 (24fps + 25fps)</text>
+    <text x="10" y="90" class="text">• 音频: 48kHz AAC (连续)</text>
+    <text x="10" y="105" class="text">• 时间戳: 连续，无跳跃</text>
+
+    <!-- 右侧：实际问题 -->
+    <text x="320" y="45" class="text-title">⚠️ 实际问题:</text>
+    <text x="320" y="60" class="text">• 总时长: 52 秒 (多 1.64s)</text>
+    <text x="320" y="75" class="text">• 拼接处: 有停顿帧</text>
+    <text x="320" y="90" class="text">• 原因: +genpts 可能在片段边界</text>
+    <text x="320" y="105" class="text">         重复了部分帧</text>
+
+    <!-- 底部说明 -->
+    <text x="10" y="130" class="text-title">可能原因分析:</text>
+    <text x="10" y="145" class="text-small">1. +genpts 重新生成 PTS 时，可能在拼接点插入了额外帧</text>
+    <text x="10" y="158" class="text-small">2. 音频重编码 (44.1kHz → 48kHz) 导致时间戳微调</text>
+    <text x="10" y="171" class="text-small">3. 裁剪时的关键帧对齐可能引入了 0.1-0.2s 的偏差</text>
+  </g>
+
+  <!-- ==================== 右侧：时间戳对比图 ==================== -->
+  <g transform="translate(50, 720)">
+    <rect x="0" y="0" width="320" height="230" rx="5" class="box" />
+    <text x="10" y="20" class="text-title">时间戳对比 (理论 vs 实际)</text>
+
+    <!-- 理论时间轴 -->
+    <text x="10" y="40" class="text-title">理论时间轴:</text>
+    <rect x="10" y="50" width="100" height="15" fill="#22c55e" />
+    <text x="15" y="62" class="text-small" fill="white">4.79s</text>
+    <rect x="115" y="50" width="195" height="15" fill="#3b82f6" />
+    <text x="200" y="62" class="text-small" fill="white">45.57s</text>
+    <text x="10" y="75" class="text">总时长: 50.36s ✓</text>
+
+    <!-- 实际时间轴 -->
+    <text x="10" y="95" class="text-title">实际时间轴:</text>
+    <rect x="10" y="105" width="102" height="15" fill="#22c55e" />
+    <text x="15" y="117" class="text-small" fill="white">~4.9s</text>
+    <line x1="115" y1="105" x2="115" y2="155" stroke="#ef4444" stroke-width="2" stroke-dasharray="3,3" />
+    <rect x="120" y="105" width="190" height="15" fill="#3b82f6" />
+    <text x="200" y="117" class="text-small" fill="white">~47.1s</text>
+    <text x="10" y="130" class="text">总时长: 52s ✗</text>
+
+    <!-- 差异说明 -->
+    <text x="10" y="150" class="text-title">差异:</text>
+    <text x="10" y="165" class="text">• 片段1: +0.11s</text>
+    <text x="10" y="180" class="text">• 片段2: +1.53s</text>
+    <text x="10" y="195" class="text">• 拼接点: 停顿 0.5-1 帧</text>
+
+    <text x="10" y="215" class="text-small" fill="#ef4444">红色虚线 = 停顿位置</text>
+  </g>
+</svg>

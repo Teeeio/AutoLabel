@@ -6,6 +6,11 @@ contextBridge.exposeInMainWorld("generator", {
     const listener = (_event, data) => handler(data);
     ipcRenderer.on("generator:progress", listener);
     return () => ipcRenderer.removeListener("generator:progress", listener);
+  },
+  onLog: (handler) => {
+    const listener = (_event, data) => handler(data);
+    ipcRenderer.on("generator:log", listener);
+    return () => ipcRenderer.removeListener("generator:log", listener);
   }
 });
 
@@ -41,5 +46,6 @@ contextBridge.exposeInMainWorld("localVideo", {
   checkExists: (filePath) => ipcRenderer.invoke("local-video:check-exists", filePath),
   getMetadata: (filePath) => ipcRenderer.invoke("local-video:get-metadata", filePath),
   getInfoQuick: (filePath) => ipcRenderer.invoke("local-video:get-info-quick", filePath),
-  load: (filePath) => ipcRenderer.invoke("local-video:load", filePath)
+  load: (filePath) => ipcRenderer.invoke("local-video:load", filePath),
+  selectFile: (filters) => ipcRenderer.invoke("local-video:select-file-with-filters", filters)
 });

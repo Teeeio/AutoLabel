@@ -25,6 +25,7 @@ const {
   selectVideoFolder,
   scanVideoFiles,
   selectVideoFile,
+  selectFile,
   getVideoMetadata,
   getVideoInfoQuick
 } = require("./local-video.cjs");
@@ -155,7 +156,7 @@ function configureMediaHeaders() {
 
 ipcMain.handle("generator:run", async (event, payload) => {
   const sendProgress = (data) => event.sender.send("generator:progress", data);
-  const result = await runGeneration(payload, sendProgress);
+  const result = await runGeneration(payload, sendProgress, { sender: event.sender });
   return {
     ...result,
     payload
@@ -268,6 +269,19 @@ ipcMain.handle("local-video:select-file", async (event) => {
       return { ok: false, error: "用户取消选择" };
     }
     return { ok: true, filePath };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("local-video:select-file-with-filters", async (event, filters) => {
+  const mainWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!mainWindow) {
+    return { ok: false, error: "无法获取主窗口" };
+  }
+  try {
+    const result = await selectFile(mainWindow, filters);
+    return result;
   } catch (error) {
     return { ok: false, error: error.message };
   }

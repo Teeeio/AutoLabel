@@ -1,0 +1,326 @@
+<svg width="1400" height="1000" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font-size: 28px; font-weight: bold; fill: #1e293b; }
+      .subtitle { font-size: 18px; font-weight: 600; fill: #334155; }
+      .step-box { fill: #ffffff; stroke: #94a3b8; stroke-width: 2; rx: 8; }
+      .step-header { fill: #f1f5f9; }
+      .step-title { font-size: 15px; font-weight: 600; fill: #0f172a; }
+      .step-desc { font-size: 13px; fill: #475569; }
+      .step-detail { font-size: 12px; fill: #64748b; }
+      .process-arrow { stroke: #3b82f6; stroke-width: 3; fill: none; marker-end: url(#arrowhead-blue); }
+      .data-arrow { stroke: #059669; stroke-width: 3; fill: none; marker-end: url(#arrowhead-green); }
+      .error-arrow { stroke: #dc2626; stroke-width: 2; fill: none; stroke-dasharray: 5,5; marker-end: url(#arrowhead-red); }
+
+      .bilibili-box { fill: #fef3c7; stroke: #f59e0b; stroke-width: 3; rx: 10; }
+      .bilibili-title { font-size: 16px; font-weight: 700; fill: #b45309; }
+
+      .local-box { fill: #dbeafe; stroke: #3b82f6; stroke-width: 3; rx: 10; }
+      .local-title { font-size: 16px; font-weight: 700; fill: #1d4ed8; }
+
+      .process-box { fill: #f3e8ff; stroke: #9333ea; stroke-width: 2; rx: 8; }
+      .process-title { font-size: 14px; font-weight: 600; fill: #7e22ce; }
+
+      .output-box { fill: #dcfce7; stroke: #059669; stroke-width: 3; rx: 10; }
+      .output-title { font-size: 16px; font-weight: 700; fill: #047857; }
+
+      .error-box { fill: #fee2e2; stroke: #dc2626; stroke-width: 2; rx: 8; }
+      .error-title { font-size: 14px; font-weight: 600; fill: #dc2626; }
+
+      .step-number { font-size: 40px; font-weight: bold; fill: #cbd5e1; }
+      .icon-text { font-size: 24px; }
+    </style>
+
+    <marker id="arrowhead-blue" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+      <polygon points="0 0, 12 4, 0 8" fill="#3b82f6"/>
+    </marker>
+    <marker id="arrowhead-green" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+      <polygon points="0 0, 12 4, 0 8" fill="#059669"/>
+    </marker>
+    <marker id="arrowhead-red" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+      <polygon points="0 0, 12 4, 0 8" fill="#dc2626"/>
+    </marker>
+  </defs>
+
+  <!-- 标题 -->
+  <text x="700" y="50" text-anchor="middle" class="title">视频拼接处理 Pipeline 流程图</text>
+
+  <!-- ==================== 左侧：Bilibili 视频源 ==================== -->
+
+  <text x="50" y="100" class="subtitle">Bilibili 视频源</text>
+
+  <!-- 输入卡片 -->
+  <g transform="translate(50, 130)">
+    <rect x="0" y="0" width="300" height="120" class="bilibili-box"/>
+    <text x="150" y="30" text-anchor="middle" class="bilibili-title">📼 Bilibili 卡片</text>
+    <text x="20" y="60" class="step-detail">• BVID: BV1234567890</text>
+    <text x="20" y="80" class="step-detail">• 时间范围: 00:30 - 01:00</text>
+    <text x="20" y="100" class="step-detail">• CV号: CV1a2B3c4</text>
+  </g>
+
+  <!-- 步骤1：解析视频信息 -->
+  <g transform="translate(50, 280)">
+    <rect x="0" y="0" width="300" height="140" class="step-box"/>
+    <rect x="0" y="0" width="300" height="40" class="step-header" rx="8"/>
+    <rect x="0" y="35" width="300" height="10" fill="#f1f5f9"/>
+    <text x="20" y="65" class="step-number">1</text>
+    <text x="70" y="30" class="step-title">解析视频信息</text>
+    <text x="70" y="55" class="step-desc">preview:resolve</text>
+    <text x="20" y="90" class="step-detail">• 获取 aid, cid</text>
+    <text x="20" y="110" class="step-detail">• 获取视频时长</text>
+    <text x="20" y="130" class="step-detail">• 验证时间范围有效性</text>
+  </g>
+
+  <!-- 步骤2：获取视频流 -->
+  <g transform="translate(50, 450)">
+    <rect x="0" y="0" width="300" height="140" class="step-box"/>
+    <rect x="0" y="0" width="300" height="40" class="step-header" rx="8"/>
+    <rect x="0" y="35" width="300" height="10" fill="#f1f5f9"/>
+    <text x="20" y="65" class="step-number">2</text>
+    <text x="70" y="30" class="step-title">获取视频流</text>
+    <text x="70" y="55" class="step-desc">preview:info + DASH 解析</text>
+    <text x="20" y="90" class="step-detail">• 解析 DASH manifest</text>
+    <text x="20" y="110" class="step-detail">• 选择最佳质量流</text>
+    <text x="20" y="130" class="step-detail">• 获取视频分片 URL</text>
+  </g>
+
+  <!-- 步骤3：下载视频片段 -->
+  <g transform="translate(50, 620)">
+    <rect x="0" y="0" width="300" height="140" class="step-box"/>
+    <rect x="0" y="0" width="300" height="40" class="step-header" rx="8"/>
+    <rect x="0" y="35" width="300" height="10" fill="#f1f5f9"/>
+    <text x="20" y="65" class="step-number">3</text>
+    <text x="70" y="30" class="step-title">下载视频片段</text>
+    <text x="70" y="55" class="step-desc">generator:download</text>
+    <text x="20" y="90" class="step-detail">• 下载指定时间范围</text>
+    <text x="20" y="110" class="step-detail">• 保存到临时文件</text>
+    <text x="20" y="130" class="step-detail">• .mp4 格式</text>
+  </g>
+
+  <!-- Bilibili 流程箭头 -->
+  <path d="M 200 250 L 200 280" class="process-arrow"/>
+  <path d="M 200 420 L 200 450" class="process-arrow"/>
+  <path d="M 200 590 L 200 620" class="process-arrow"/>
+
+  <!-- ==================== 右侧：本地视频源 ==================== -->
+
+  <text x="450" y="100" class="subtitle">本地视频源</text>
+
+  <!-- 输入卡片 -->
+  <g transform="translate(450, 130)">
+    <rect x="0" y="0" width="300" height="120" class="local-box"/>
+    <text x="150" y="30" text-anchor="middle" class="local-title">📁 本地视频卡片</text>
+    <text x="20" y="60" class="step-detail">• 本地路径: F:/Videos/dance.mp4</text>
+    <text x="20" y="80" class="step-detail">• 时间范围: 01:00 - 01:30</text>
+    <text x="20" y="100" class="step-detail">• ID: local-1234567890</text>
+  </g>
+
+  <!-- 步骤1：读取本地文件 -->
+  <g transform="translate(450, 280)">
+    <rect x="0" y="0" width="300" height="140" class="step-box"/>
+    <rect x="0" y="0" width="300" height="40" class="step-header" rx="8"/>
+    <rect x="0" y="35" width="300" height="10" fill="#f1f5f9"/>
+    <text x="20" y="65" class="step-number">1</text>
+    <text x="70" y="30" class="step-title">读取本地文件</text>
+    <text x="70" y="55" class="step-desc">local-video:load</text>
+    <text x="20" y="90" class="step-detail">• 通过 IPC 读取文件</text>
+    <text x="20" y="110" class="step-detail">• 转换为 ArrayBuffer</text>
+    <text x="20" y="130" class="step-detail">• 创建 Blob URL</text>
+  </g>
+
+  <!-- 步骤2：验证视频 -->
+  <g transform="translate(450, 450)">
+    <rect x="0" y="0" width="300" height="140" class="step-box"/>
+    <rect x="0" y="0" width="300" height="40" class="step-header" rx="8"/>
+    <rect x="0" y="35" width="300" height="10" fill="#f1f5f9"/>
+    <text x="20" y="65" class="step-number">2</text>
+    <text x="70" y="30" class="step-title">验证视频</text>
+    <text x="70" y="55" class="step-desc">validateCard</text>
+    <text x="20" y="90" class="step-detail">• 检查文件是否存在</text>
+    <text x="20" y="110" class="step-detail">• 验证时间范围</text>
+    <text x="20" y="130" class="step-detail">• 获取元数据</text>
+  </g>
+
+  <!-- 步骤3：直接使用 -->
+  <g transform="translate(450, 620)">
+    <rect x="0" y="0" width="300" height="140" class="step-box"/>
+    <rect x="0" y="0" width="300" height="40" class="step-header" rx="8"/>
+    <rect x="0" y="35" width="300" height="10" fill="#f1f5f9"/>
+    <text x="20" y="65" class="step-number">3</text>
+    <text x="70" y="30" class="step-title">准备拼接</text>
+    <text x="70" y="55" class="step-desc">无需下载</text>
+    <text x="20" y="90" class="step-detail">• 直接使用本地文件</text>
+    <text x="20" y="110" class="step-detail">• 按时间范围裁剪</text>
+    <text x="20" y="130" class="step-detail" fill="#059669">✓ 更快的处理速度</text>
+  </g>
+
+  <!-- 本地流程箭头 -->
+  <path d="M 600 250 L 600 280" class="process-arrow"/>
+  <path d="M 600 420 L 600 450" class="process-arrow"/>
+  <path d="M 600 590 L 600 620" class="process-arrow"/>
+
+  <!-- ==================== 中间：共同处理流程 ==================== -->
+
+  <text x="850" y="100" class="subtitle">共同处理流程</text>
+
+  <!-- 合并输入 -->
+  <g transform="translate(850, 130)">
+    <rect x="0" y="0" width="250" height="80" class="process-box"/>
+    <text x="125" y="30" text-anchor="middle" class="process-title">视频片段集合</text>
+    <text x="20" y="55" class="step-detail">• Bilibili 下载的片段</text>
+    <text x="20" y="70" class="step-detail">• 本地视频片段</text>
+  </g>
+
+  <!-- 箭头 -->
+  <path d="M 350 690 L 600 690 L 600 170 L 850 170" class="data-arrow"/>
+  <path d="M 750 690 L 820 690 L 820 170 L 850 170" class="data-arrow"/>
+
+  <!-- 步骤1：裁剪片段 -->
+  <g transform="translate(850, 240)">
+    <rect x="0" y="0" width="250" height="120" class="step-box"/>
+    <rect x="0" y="0" width="250" height="35" class="step-header" rx="8"/>
+    <rect x="0" y="30" width="250" height="7" fill="#f1f5f9"/>
+    <text x="15" y="55" class="step-number">1</text>
+    <text x="50" y="25" class="step-title">裁剪视频片段</text>
+    <text x="50" y="50" class="step-desc">FFmpeg clip</text>
+    <text x="20" y="80" class="step-detail">• 按照精确时间裁剪</text>
+    <text x="20" y="100" class="step-detail">• -ss start -to end</text>
+  </g>
+
+  <!-- 箭头 -->
+  <path d="M 975 210 L 975 240" class="process-arrow"/>
+
+  <!-- 步骤2：应用拼接规则 -->
+  <g transform="translate(850, 390)">
+    <rect x="0" y="0" width="250" height="160" class="step-box"/>
+    <rect x="0" y="0" width="250" height="35" class="step-header" rx="8"/>
+    <rect x="0" y="30" width="250" height="7" fill="#f1f5f9"/>
+    <text x="15" y="55" class="step-number">2</text>
+    <text x="50" y="25" class="step-title">应用拼接规则</text>
+
+    <rect x="15" y="65" width="220" height="40" fill="#dbeafe" rx="4"/>
+    <text x="30" y="82" class="step-detail" font-weight="600">直接拼接</text>
+    <text x="30" y="98" class="step-detail">片段首尾相连</text>
+
+    <rect x="15" y="115" width="220" height="40" fill="#fef3c7" rx="4"/>
+    <text x="30" y="132" class="step-detail" font-weight="600">淡入淡出</text>
+    <text x="30" y="148" class="step-detail">交叉重叠 {overlap}s</text>
+  </g>
+
+  <!-- 箭头 -->
+  <path d="M 975 360 L 975 390" class="process-arrow"/>
+
+  <!-- 步骤3：拼接视频 -->
+  <g transform="translate(850, 580)">
+    <rect x="0" y="0" width="250" height="140" class="step-box"/>
+    <rect x="0" y="0" width="250" height="35" class="step-header" rx="8"/>
+    <rect x="0" y="30" width="250" height="7" fill="#f1f5f9"/>
+    <text x="15" y="55" class="step-number">3</text>
+    <text x="50" y="25" class="step-title">拼接视频</text>
+    <text x="50" y="50" class="step-desc">FFmpeg concat</text>
+    <text x="20" y="80" class="step-detail">• 创建 concat 列表</text>
+    <text x="20" y="100" class="step-detail">• 合并所有片段</text>
+    <text x="20" y="120" class="step-detail">• 保持音视频同步</text>
+  </g>
+
+  <!-- 箭头 -->
+  <path d="M 975 550 L 975 580" class="process-arrow"/>
+
+  <!-- 步骤4：导出视频 -->
+  <g transform="translate(850, 750)">
+    <rect x="0" y="0" width="250" height="120" class="output-box"/>
+    <text x="125" y="35" text-anchor="middle" class="output-title">🎬 导出完成</text>
+    <text x="20" y="65" class="step-detail">• 输出路径: output.mp4</text>
+    <text x="20" y="85" class="step-detail">• 总时长: 05:30</text>
+    <text x="20" y="105" class="step-detail">• 卡片数: 11 个</text>
+  </g>
+
+  <!-- 箭头 -->
+  <path d="M 975 720 L 975 750" class="process-arrow"/>
+
+  <!-- ==================== 右侧：错误处理 ==================== -->
+
+  <text x="1180" y="100" class="subtitle">错误处理</text>
+
+  <!-- Bilibili 错误 -->
+  <g transform="translate(1150, 280)">
+    <rect x="0" y="0" width="200" height="100" class="error-box"/>
+    <text x="100" y="25" text-anchor="middle" class="error-title">Bilibili 错误</text>
+    <text x="15" y="50" class="step-detail">• 视频404</text>
+    <text x="15" y="65" class="step-detail">• DASH解析失败</text>
+    <text x="15" y="80" class="step-detail">• 下载超时</text>
+  </g>
+
+  <!-- 本地错误 -->
+  <g transform="translate(1150, 450)">
+    <rect x="0" y="0" width="200" height="100" class="error-box"/>
+    <text x="100" y="25" text-anchor="middle" class="error-title">本地错误</text>
+    <text x="15" y="50" class="step-detail">• 文件不存在</text>
+    <text x="15" y="65" class="step-detail">• 格式不支持</text>
+    <text x="15" y="80" class="step-detail">• 损坏的视频</text>
+  </g>
+
+  <!-- 拼接错误 -->
+  <g transform="translate(1150, 620)">
+    <rect x="0" y="0" width="200" height="100" class="error-box"/>
+    <text x="100" y="25" text-anchor="middle" class="error-title">拼接错误</text>
+    <text x="15" y="50" class="step-detail">• FFmpeg 失败</text>
+    <text x="15" y="65" class="step-detail">• 编码不兼容</text>
+    <text x="15" y="80" class="step-detail">• 磁盘空间不足</text>
+  </g>
+
+  <!-- 错误处理箭头 -->
+  <path d="M 350 350 L 1150 330" class="error-arrow"/>
+  <path d="M 750 350 L 1150 500" class="error-arrow"/>
+  <path d="M 1100 650 L 1150 670" class="error-arrow"/>
+
+  <!-- 错误恢复 -->
+  <g transform="translate(1150, 780)">
+    <rect x="0" y="0" width="200" height="80" fill="#fef3c7" stroke="#f59e0b" stroke-width="2" rx="8"/>
+    <text x="100" y="25" text-anchor="middle" class="step-title" fill="#b45309">错误恢复</text>
+    <text x="15" y="50" class="step-detail">• 跳过错误卡片</text>
+    <text x="15" y="65" class="step-detail">• 记录日志</text>
+  </g>
+
+  <path d="M 1250 720 L 1250 780" class="data-arrow"/>
+
+  <!-- ==================== 底部：进度显示 ==================== -->
+
+  <g transform="translate(50, 820)">
+    <rect x="0" y="0" width="1050" height="150" fill="#f8fafc" stroke="#e2e8f0" stroke-width="2" rx="10"/>
+    <text x="525" y="30" text-anchor="middle" class="subtitle">实时进度反馈</text>
+
+    <!-- 进度条 -->
+    <rect x="30" y="50" width="990" height="30" fill="#e2e8f0" rx="15"/>
+    <rect x="30" y="50" width="660" height="30" fill="#3b82f6" rx="15"/>
+    <text x="360" y="72" text-anchor="middle" fill="#ffffff" font-weight="600">66%</text>
+
+    <!-- 进度详情 -->
+    <text x="30" y="100" class="step-detail">正在处理: 第 7/11 个片段</text>
+    <text x="350" y="100" class="step-detail">当前: 裁剪视频 (CV7h8I9j0)</text>
+    <text x="700" y="100" class="step-detail">预计剩余: 00:45</text>
+
+    <!-- 日志 -->
+    <text x="30" y="125" class="step-detail" fill="#059669">✓ 卡片1-6 拼接完成</text>
+    <text x="30" y="140" class="step-detail" fill="#64748b">→ 正在处理卡片7...</text>
+  </g>
+
+  <!-- 图例 -->
+  <g transform="translate(1150, 240)">
+    <rect x="0" y="0" width="200" height="180" fill="#ffffff" stroke="#e2e8f0" stroke-width="2" rx="8"/>
+    <text x="100" y="25" text-anchor="middle" class="subtitle" font-size="14px">图例</text>
+
+    <rect x="15" y="40" width="40" height="25" class="bilibili-box"/>
+    <text x="65" y="57" class="step-detail">Bilibili 源</text>
+
+    <rect x="15" y="75" width="40" height="25" class="local-box"/>
+    <text x="65" y="92" class="step-detail">本地源</text>
+
+    <rect x="15" y="110" width="40" height="25" class="process-box"/>
+    <text x="65" y="127" class="step-detail">处理步骤</text>
+
+    <rect x="15" y="145" width="40" height="25" class="output-box"/>
+    <text x="65" y="162" class="step-detail">输出结果</text>
+  </g>
+
+</svg>

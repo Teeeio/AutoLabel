@@ -1,0 +1,348 @@
+<svg width="1600" height="1200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font-size: 28px; font-weight: bold; fill: #1e293b; }
+      .subtitle { font-size: 18px; font-weight: 600; fill: #334155; }
+      .section-title { font-size: 16px; font-weight: 700; fill: #0f172a; }
+      .box { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 8; }
+      .box-header { fill: #f1f5f9; }
+      .tech-box { fill: #fef3c7; stroke: #f59e0b; stroke-width: 2; rx: 8; }
+      .tech-title { font-size: 14px; font-weight: 700; fill: #b45309; }
+      .tech-desc { font-size: 12px; fill: #78716c; }
+      .tech-code { font-size: 11px; fill: #475569; font-family: 'Consolas', 'Monaco', monospace; }
+      .process-arrow { stroke: #3b82f6; stroke-width: 3; fill: none; marker-end: url(#arrowhead); }
+      .data-arrow { stroke: #059669; stroke-width: 3; fill: none; marker-end: url(#arrowhead-green); }
+      .transform-arrow { stroke: #9333ea; stroke-width: 3; fill: none; marker-end: url(#arrowhead-purple); }
+
+      .bilibili-source { fill: #fef3c7; stroke: #f59e0b; stroke-width: 3; }
+      .local-source { fill: #dbeafe; stroke: #3b82f6; stroke-width: 3; }
+      .normalized { fill: #dcfce7; stroke: #059669; stroke-width: 2; }
+      .ffmpeg-step { fill: #f3e8ff; stroke: #9333ea; stroke-width: 2; }
+      .output { fill: #cffafe; stroke: #06b6d4; stroke-width: 3; }
+
+      .label { font-size: 13px; font-weight: 600; fill: #1e293b; }
+      .detail { font-size: 11px; fill: #64748b; }
+      .code { font-size: 10px; fill: #475569; font-family: 'Consolas', monospace; }
+      .badge { fill: #059669; rx: 4; }
+      .badge-text { font-size: 9px; fill: #ffffff; font-weight: 600; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#3b82f6"/>
+    </marker>
+    <marker id="arrowhead-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#059669"/>
+    </marker>
+    <marker id="arrowhead-purple" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#9333ea"/>
+    </marker>
+  </defs>
+
+  <!-- 标题 -->
+  <text x="800" y="40" text-anchor="middle" class="title">多源视频拼接技术实现详解</text>
+  <text x="800" y="70" text-anchor="middle" class="detail">统一标准化处理确保视频兼容性</text>
+
+  <!-- ==================== 第一阶段：视频源处理 ==================== -->
+
+  <text x="50" y="110" class="section-title">阶段 1: 源视频标准化处理</text>
+
+  <!-- Bilibili 源处理 -->
+  <g transform="translate(50, 140)">
+    <rect x="0" y="0" width="450" height="280" class="bilibili-source" rx="10"/>
+    <text x="225" y="30" text-anchor="middle" class="section-title" fill="#b45309">Bilibili 源</text>
+
+    <!-- Step 1.1 -->
+    <g transform="translate(20, 50)">
+      <rect x="0" y="0" width="410" height="55" class="box"/>
+      <text x="10" y="18" class="label">1.1 DASH 解析与流选择</text>
+      <text x="10" y="35" class="code">preview:info → 解析 manifest.mpd</text>
+      <text x="10" y="48" class="detail">选择: 1080p/720p, AVC编码, 60fps → 确保统一质量</text>
+    </g>
+
+    <!-- Step 1.2 -->
+    <g transform="translate(20, 115)">
+      <rect x="0" y="0" width="410" height="55" class="box"/>
+      <text x="10" y="18" class="label">1.2 音视频流分离下载</text>
+      <text x="10" y="35" class="code">下载 video.m4s + audio.m4s</text>
+      <text x="10" y="48" class="detail">使用 Referer: https://www.bilibili.com 绕过限制</text>
+    </g>
+
+    <!-- Step 1.3 -->
+    <g transform="translate(20, 180)">
+      <rect x="0" y="0" width="410" height="55" class="box"/>
+      <text x="10" y="18" class="label">1.3 FFmpeg 标准化转码</text>
+      <text x="10" y="35" class="code">-c:v libx264 -preset fast -crf 23</text>
+      <text x="10" y="48" class="detail">统一编码: H.264/AAC, 确保后续拼接兼容</text>
+    </g>
+
+    <!-- Step 1.4 -->
+    <g transform="translate(20, 245)">
+      <rect x="0" y="0" width="410" height="25" class="normalized" rx="4"/>
+      <text x="205" y="18" text-anchor="middle" class="label" fill="#047857">✓ 标准MP4文件</text>
+    </g>
+  </g>
+
+  <!-- 本地源处理 -->
+  <g transform="translate(550, 140)">
+    <rect x="0" y="0" width="450" height="280" class="local-source" rx="10"/>
+    <text x="225" y="30" text-anchor="middle" class="section-title" fill="#1d4ed8">本地视频源</text>
+
+    <!-- Step 1.1 -->
+    <g transform="translate(20, 50)">
+      <rect x="0" y="0" width="410" height="55" class="box"/>
+      <text x="10" y="18" class="label">1.1 格式检测与验证</text>
+      <text x="10" y="35" class="code">ffprobe -v quiet -print_format json</text>
+      <text x="10" y="48" class="detail">检测: 编码格式、分辨率、帧率、码率</text>
+    </g>
+
+    <!-- Step 1.2 -->
+    <g transform="translate(20, 115)">
+      <rect x="0" y="0" width="410" height="55" class="box"/>
+      <text x="10" y="18" class="label">1.2 兼容性检查</text>
+      <text x="10" y="35" class="code">检查: 是否H.264/AAC, 容器格式</text>
+      <text x="10" y="48" class="detail">不兼容 → 触发转码; 兼容 → 直接使用</text>
+    </g>
+
+    <!-- Step 1.3 -->
+    <g transform="translate(20, 180)">
+      <rect x="0" y="0" width="410" height="55" class="box"/>
+      <text x="10" y="18" class="label">1.3 时间戳校准</text>
+      <text x="10" y="35" class="code">-vsync 0 -帧率精确同步</text>
+      <text x="10" y="48" class="detail">确保时间轴精确: 00:00.000 对齐</text>
+    </g>
+
+    <!-- Step 1.4 -->
+    <g transform="translate(20, 245)">
+      <rect x="0" y="0" width="410" height="25" class="normalized" rx="4"/>
+      <text x="205" y="18" text-anchor="middle" class="label" fill="#047857">✓ 标准MP4文件</text>
+    </g>
+  </g>
+
+  <!-- 源对比说明 -->
+  <g transform="translate(1050, 140)">
+    <rect x="0" y="0" width="500" height="280" fill="#f8fafc" stroke="#e2e8f0" stroke-width="2" rx="8"/>
+    <text x="250" y="30" text-anchor="middle" class="section-title">关键技术对比</text>
+
+    <g transform="translate(20, 50)">
+      <text x="0" y="0" class="label" fill="#b45309">Bilibili 特殊处理:</text>
+      <text x="0" y="20" class="detail">• Cookie 认证: SESSDATA 突破限制</text>
+      <text x="0" y="35" class="detail">• User-Agent: Windows Chrome 伪装</text>
+      <text x="0" y="50" class="detail">• 分片并发: 加速下载 (最多4线程)</text>
+      <text x="0" y="65" class="detail">• 重试机制: 失败自动重试3次</text>
+    </g>
+
+    <g transform="translate(20, 130)">
+      <text x="0" y="0" class="label" fill="#1d4ed8">本地视频优化:</text>
+      <text x="0" y="20" class="detail">• 直接文件读取: 无需下载</text>
+      <text x="0" y="35" class="detail">• 增量验证: 只检查必要信息</text>
+      <text x="0" y="50" class="detail">• 缓存机制: 避免重复读取</text>
+      <text x="0" y="65" class="detail">• 智能转码: 仅在必要时转码</text>
+    </g>
+
+    <g transform="translate(20, 215)">
+      <rect x="0" y="0" width="460" height="50" fill="#dbeafe" stroke="#3b82f6" stroke-width="2" rx="6"/>
+      <text x="230" y="20" text-anchor="middle" class="label">统一输出标准</text>
+      <text x="230" y="38" text-anchor="middle" class="code">容器: MP4 | 视频: H.264 | 音频: AAC</text>
+    </g>
+  </g>
+
+  <!-- ==================== 第二阶段：精确裁剪 ==================== -->
+
+  <text x="50" y="460" class="section-title">阶段 2: 时间片段精确裁剪</text>
+
+  <!-- 裁剪技术 -->
+  <g transform="translate(50, 490)">
+    <rect x="0" y="0" width="700" height="200" class="ffmpeg-step" rx="8"/>
+    <text x="350" y="30" text-anchor="middle" class="section-title" fill="#7e22ce">FFmpeg 精确裁剪技术</text>
+
+    <!-- 方案对比 -->
+    <g transform="translate(20, 50)">
+      <text x="0" y="0" class="label">裁剪方案对比:</text>
+
+      <!-- 方案A: stream copy -->
+      <g transform="translate(0, 20)">
+        <rect x="0" y="0" width="320" height="60" fill="#fee2e2" stroke="#dc2626" stroke-width="2" rx="4"/>
+        <text x="10" y="18" class="label" fill="#dc2626">✗ stream copy (fast)</text>
+        <text x="10" y="35" class="code">-ss start -to end -c copy</text>
+        <text x="10" y="50" class="detail">❌ 时间不精确, 误差±2秒</text>
+      </g>
+
+      <!-- 方案B: re-encode -->
+      <g transform="translate(340, 20)">
+        <rect x="0" y="0" width="320" height="60" fill="#dcfce7" stroke="#059669" stroke-width="2" rx="4"/>
+        <text x="10" y="18" class="label" fill="#047857">✓ re-encode (accurate)</text>
+        <text x="10" y="35" class="code">-ss start -i input -to end</text>
+        <text x="10" y="50" class="detail">✅ 精确到帧, 无误差</text>
+      </g>
+    </g>
+
+    <!-- 关键参数 -->
+    <g transform="translate(20, 140)">
+      <rect x="0" y="0" width="660" height="45" class="box"/>
+      <text x="10" y="18" class="label">关键参数说明:</text>
+      <text x="10" y="35" class="code">-ss {start} -to {end} -avoid_negative_ts 1 -copyts</text>
+    </g>
+  </g>
+
+  <!-- 淡入淡出技术 -->
+  <g transform="translate(800, 490)">
+    <rect x="0" y="0" width="750" height="200" class="ffmpeg-step" rx="8"/>
+    <text x="375" y="30" text-anchor="middle" class="section-title" fill="#7e22ce">淡入淡出平滑过渡技术</text>
+
+    <!-- 技术原理 -->
+    <g transform="translate(20, 50)">
+      <text x="0" y="0" class="label">交叉淡入淡出 (Cross-fade):</text>
+
+      <g transform="translate(0, 20)">
+        <rect x="0" y="0" width="710" height="60" class="box"/>
+        <text x="15" y="20" class="code">xfade=transition=fade:duration={overlap}:offset='overlap/(fps)'</text>
+        <text x="15" y="40" class="detail">平滑过渡: 第1段末尾淡出 + 第2段开头淡入</text>
+        <text x="15" y="55" class="detail">重叠时长: 通常0.5-2秒, 根据BPM调整</text>
+      </g>
+    </g>
+
+    <g transform="translate(20, 130)">
+      <text x="0" y="0" class="label">音频混合:</text>
+      <rect x="0" y="20" width="710" height="40" class="box"/>
+      <text x="15" y="35" class="code">amix=inputs=2:duration=first:dropout_transition=2</text>
+      <text x="15" y="53" class="detail">音频交叉淡化, 避免爆音</text>
+    </g>
+  </g>
+
+  <!-- ==================== 第三阶段：拼接与导出 ==================== -->
+
+  <text x="50" y="730" class="section-title">阶段 3: 多段拼接与最终导出</text>
+
+  <!-- 拼接技术 -->
+  <g transform="translate(50, 760)">
+    <rect x="0" y="0" width="950" height="180" class="ffmpeg-step" rx="8"/>
+    <text x="475" y="30" text-anchor="middle" class="section-title" fill="#7e22ce">拼接策略与质量控制</text>
+
+    <!-- concat demuxer -->
+    <g transform="translate(20, 50)">
+      <rect x="0" y="0" width="450" height="110" class="box"/>
+      <text x="10" y="18" class="label">方法1: concat demuxer (推荐)</text>
+      <text x="10" y="35" class="code">file 'clip1.mp4' + file 'clip2.mp4' + ...</text>
+      <text x="10" y="50" class="code">-f concat -safe 0 -i list.txt -c copy</text>
+      <text x="10" y="70" class="detail">✅ 无重编码, 快速拼接</text>
+      <text x="10" y="85" class="detail">✅ 保持原始质量</text>
+      <text x="10" y="100" class="detail">✅ 所有片段编码一致时使用</text>
+    </g>
+
+    <!-- filter complex -->
+    <g transform="translate(490, 50)">
+      <rect x="0" y="0" width="440" height="110" class="box"/>
+      <text x="10" y="18" class="label">方法2: filter complex</text>
+      <text x="10" y="35" class="code">[0:v][1:v]concat=n=2:v=1[v]</text>
+      <text x="10" y="50" class="code">[0:a][1:a]concat=n=2:a=1[a]</text>
+      <text x="10" y="70" class="detail">用于需要特殊处理的情况</text>
+      <text x="10" y="85" class="detail">如: 统一分辨率、调整帧率</text>
+      <text x="10" y="100" class="detail">性能较慢但更灵活</text>
+    </g>
+  </g>
+
+  <!-- 输出质量控制 -->
+  <g transform="translate(1050, 760)">
+    <rect x="0" y="0" width="500" height="180" class="output" rx="8"/>
+    <text x="250" y="30" text-anchor="middle" class="section-title" fill="#0e7490">输出标准化</text>
+
+    <g transform="translate(20, 50)">
+      <text x="0" y="0" class="label">视频参数:</text>
+      <text x="0" y="20" class="code">-c:v libx264 -preset medium</text>
+      <text x="0" y="35" class="code">-crf 18 (高质量) -r 60 (60fps)</text>
+      <text x="0" y="55" class="detail">码率控制: -maxrate 10M -bufsize 20M</text>
+    </g>
+
+    <g transform="translate(20, 120)">
+      <text x="0" y="0" class="label">音频参数:</text>
+      <text x="0" y="20" class="code">-c:a aac -b:a 192k -ar 48000</text>
+      <text x="0" y="38" class="detail">音频采样率统一: 48kHz</text>
+    </g>
+  </g>
+
+  <!-- ==================== 底部：技术总结 ==================== -->
+
+  <g transform="translate(50, 980)">
+    <rect x="0" y="0" width="1500" height="180" fill="#f8fafc" stroke="#e2e8f0" stroke-width="2" rx="10"/>
+    <text x="750" y="30" text-anchor="middle" class="section-title">核心技术要点总结</text>
+
+    <!-- 关键点1 -->
+    <g transform="translate(30, 50)">
+      <rect x="0" y="0" width="460" height="110" fill="#dbeafe" stroke="#3b82f6" stroke-width="2" rx="6"/>
+      <text x="230" y="25" text-anchor="middle" class="label" fill="#1d4ed8">1. 编码统一性</text>
+      <text x="15" y="50" class="detail">✓ 所有片段必须使用相同编码器</text>
+      <text x="15" y="65" class="detail">✓ H.264视频 + AAC音频</text>
+      <text x="15" y="80" class="detail">✓ 相同分辨率: 1920x1080</text>
+      <text x="15" y="95" class="detail">✓ 相同帧率: 60fps</text>
+    </g>
+
+    <!-- 关键点2 -->
+    <g transform="translate(510, 50)">
+      <rect x="0" y="0" width="460" height="110" fill="#fef3c7" stroke="#f59e0b" stroke-width="2" rx="6"/>
+      <text x="230" y="25" text-anchor="middle" class="label" fill="#b45309">2. 时间轴精确性</text>
+      <text x="15" y="50" class="detail">✓ 使用 -ss/-to 而非 -t</text>
+      <text x="15" y="65" class="detail">✓ -vsync 0 精确帧同步</text>
+      <text x="15" y="80" class="detail">✓ -copyts 避免时间戳跳跃</text>
+      <text x="15" y="95" class="detail">✓ -avoid_negative_ts 1</text>
+    </g>
+
+    <!-- 关键点3 -->
+    <g transform="translate(990, 50)">
+      <rect x="0" y="0" width="480" height="110" fill="#f3e8ff" stroke="#9333ea" stroke-width="2" rx="6"/>
+      <text x="240" y="25" text-anchor="middle" class="label" fill="#7e22ce">3. 平滑过渡</text>
+      <text x="15" y="50" class="detail">✓ xfade 实现交叉淡入淡出</text>
+      <text x="15" y="65" class="detail">✓ 音频同时处理避免爆音</text>
+      <text x="15" y="80" class="detail">✓ 重叠时长根据BPM计算</text>
+      <text x="15" y="95" class="detail">✓ 快歌0.5s, 慢歌2s</text>
+    </g>
+  </g>
+
+  <!-- 流程箭头 -->
+  <!-- 阶段1 → 阶段2 -->
+  <path d="M 275 420 L 275 440 L 400 440 L 400 490" class="process-arrow"/>
+  <path d="M 775 420 L 775 440 L 400 440" class="process-arrow"/>
+
+  <!-- 阶段2 → 阶段3 -->
+  <path d="M 400 690 L 400 710 L 525 710 L 525 760" class="process-arrow"/>
+  <path d="M 1175 690 L 1175 710 L 525 710" class="process-arrow"/>
+
+  <!-- 图例 -->
+  <g transform="translate(50, 1180)">
+    <rect x="0" y="0" width="1500" height="10" fill="#e2e8f0"/>
+  </g>
+
+  <g transform="translate(100, 1130)">
+    <rect x="0" y="0" width="150" height="40" class="bilibili-source"/>
+    <text x="75" y="25" text-anchor="middle" class="detail" fill="#ffffff">Bilibili源</text>
+  </g>
+
+  <g transform="translate(300, 1130)">
+    <rect x="0" y="0" width="150" height="40" class="local-source"/>
+    <text x="75" y="25" text-anchor="middle" class="detail" fill="#ffffff">本地源</text>
+  </g>
+
+  <g transform="translate(500, 1130)">
+    <rect x="0" y="0" width="150" height="40" class="normalized"/>
+    <text x="75" y="25" text-anchor="middle" class="detail" fill="#047857">标准化</text>
+  </g>
+
+  <g transform="translate(700, 1130)">
+    <rect x="0" y="0" width="150" height="40" class="ffmpeg-step"/>
+    <text x="75" y="25" text-anchor="middle" class="detail" fill="#7e22ce">FFmpeg处理</text>
+  </g>
+
+  <g transform="translate(900, 1130)">
+    <rect x="0" y="0" width="150" height="40" class="output"/>
+    <text x="75" y="25" text-anchor="middle" class="detail" fill="#0e7490">输出</text>
+  </g>
+
+  <g transform="translate(1100, 1130)">
+    <line x1="0" y1="20" x2="50" y2="20" class="process-arrow"/>
+    <text x="60" y="25" class="detail">处理流程</text>
+  </g>
+
+  <g transform="translate(1250, 1130)">
+    <line x1="0" y1="20" x2="50" y2="20" class="data-arrow"/>
+    <text x="60" y="25" class="detail">数据流</text>
+  </g>
+
+</svg>

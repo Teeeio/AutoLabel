@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>卡片设计测试</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft YaHei UI", sans-serif;
+      background: #eef2f6;
+      padding: 40px;
+    }
+    .test-container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 { color: #0f172a; margin-bottom: 20px; }
+    .section {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+    }
+    .section-title {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #6b7280;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    /* 新卡片样式 - 直接从 index.css 复制 */
+    .save-items {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .save-item {
+      display: flex;
+      flex-direction: column;
+      border-radius: 12px;
+      background: #ffffff;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+      transition: all 0.2s ease;
+      overflow: hidden;
+      cursor: pointer;
+    }
+
+    .save-item:hover {
+      border-color: rgba(79, 172, 254, 0.3);
+      box-shadow: 0 4px 12px rgba(79, 172, 254, 0.15);
+      transform: translateY(-2px);
+    }
+
+    .save-item-preview {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .save-item-video-placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      position: relative;
+    }
+
+    .play-icon {
+      font-size: 48px;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .preview-hint {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.8);
+      font-weight: 500;
+    }
+
+    .save-item-info {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .save-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .save-item-title {
+      flex: 1;
+      font-size: 14px;
+      font-weight: 600;
+      color: #1e293b;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .save-item-visibility {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #f1f5f9;
+      color: #64748b;
+      white-space: nowrap;
+    }
+
+    .save-item-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .save-item-duration {
+      font-weight: 500;
+    }
+
+    .save-item-source {
+      color: #94a3b8;
+    }
+
+    .save-item-actions {
+      display: flex;
+      gap: 8px;
+      padding-top: 4px;
+      border-top: 1px solid rgba(0, 0, 0, 0.06);
+    }
+
+    .save-item-btn {
+      flex: 1;
+      padding: 6px 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: #f8fafc;
+      color: #475569;
+    }
+
+    .save-item-btn:hover {
+      background: #e2e8f0;
+    }
+
+    .save-item-btn:first-child {
+      background: rgba(79, 172, 254, 0.1);
+      color: #4facfe;
+    }
+
+    .save-item-btn:first-child:hover {
+      background: rgba(79, 172, 254, 0.2);
+    }
+
+    .save-item-btn:last-child {
+      color: #ef4444;
+    }
+
+    .save-item-btn:last-child:hover {
+      background: #fee2e2;
+    }
+
+    .hint {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+      color: #92400e;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .hint strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="test-container">
+    <h1>新卡片设计测试</h1>
+
+    <div class="hint">
+      <strong>⚠️ 重要说明</strong>
+      这是新卡片设计的独立测试页面。如果你在应用中看不到这个样式，请：<br>
+      1. 确认你在<strong>编辑器页面</strong>（不是管理页面）<br>
+      2. 确认你已经保存了至少 1 张卡片<br>
+      3. 完全关闭应用并重新启动（不只是刷新页面）<br>
+      4. 查看编辑器页面右下角的"最近片段"区域
+    </div>
+
+    <div class="section">
+      <div class="section-title">新设计 - 网格布局（3列示例）</div>
+      <div class="save-items">
+        <div class="save-item">
+          <div class="save-item-preview">
+            <div class="save-item-video-placeholder">
+              <span class="play-icon">▶</span>
+              <span class="preview-hint">预览</span>
+            </div>
+          </div>
+          <div class="save-item-info">
+            <div class="save-item-header">
+              <div class="save-item-title">测试卡片1 - 这是一个很长的标题用于测试两行显示效果</div>
+              <div class="save-item-visibility">🔒 私有</div>
+            </div>
+            <div class="save-item-meta">
+              <span class="save-item-duration">⏱ 01:23 - 02:45</span>
+              <span class="save-item-source">🎵 B站</span>
+            </div>
+            <div class="save-item-actions">
+              <button class="save-item-btn load-btn">📋 加载</button>
+              <button class="save-item-btn delete-btn">🗑 删除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="save-item">
+          <div class="save-item-preview">
+            <div class="save-item-video-placeholder">
+              <span class="play-icon">▶</span>
+              <span class="preview-hint">预览</span>
+            </div>
+          </div>
+          <div class="save-item-info">
+            <div class="save-item-header">
+              <div class="save-item-title">测试卡片2 - 公开片段</div>
+              <div class="save-item-visibility">🌐 公开</div>
+            </div>
+            <div class="save-item-meta">
+              <span class="save-item-duration">⏱ 00:45 - 01:30</span>
+              <span class="save-item-source">📁 本地</span>
+            </div>
+            <div class="save-item-actions">
+              <button class="save-item-btn load-btn">📋 加载</button>
+              <button class="save-item-btn delete-btn">🗑 删除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="save-item">
+          <div class="save-item-preview">
+            <div class="save-item-video-placeholder">
+              <span class="play-icon">▶</span>
+              <span class="preview-hint">预览</span>
+            </div>
+          </div>
+          <div class="save-item-info">
+            <div class="save-item-header">
+              <div class="save-item-title">测试卡片3</div>
+              <div class="save-item-visibility">🔒 私有</div>
+            </div>
+            <div class="save-item-meta">
+              <span class="save-item-duration">⏱ 02:10 - 03:50</span>
+              <span class="save-item-source">🎵 B站</span>
+            </div>
+            <div class="save-item-actions">
+              <button class="save-item-btn load-btn">📋 加载</button>
+              <button class="save-item-btn delete-btn">🗑 删除</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">预期效果清单</div>
+      <div style="color: #64748b; font-size: 14px; line-height: 1.8;">
+        ✅ 卡片以网格布局排列（上面是3列）<br>
+        ✅ 每个卡片上方有 16:9 的紫蓝渐变色预览区域<br>
+        ✅ 标题最多显示 2 行，超出会被截断（...）<br>
+        ✅ 右上角有可见性标签（🌐 公开 或 🔒 私有）<br>
+        ✅ 时长显示格式：⏱ 01:23 - 02:45<br>
+        ✅ 来源显示：🎵 B站 或 📁 本地<br>
+        ✅ 底部有两个按钮：📋 加载 和 🗑 删除<br>
+        ✅ 鼠标悬停时卡片会轻微上移并显示蓝色阴影
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">关键区别</div>
+      <div style="color: #64748b; font-size: 14px; line-height: 1.8;">
+        <strong>编辑器页面（BuilderPage）</strong> - 新设计在这里<br>
+        └─ 位置：右下角的"最近片段"区域<br>
+        └─ 布局：网格（grid），自动列数<br>
+        └─ 预览：16:9 渐变色背景占位<br>
+        <br>
+        <strong>管理页面（ManagePage）</strong> - 旧设计未改变<br>
+        └─ 布局：单列列表（不是网格）<br>
+        └─ 预览：悬停时显示 webview<br>
+        └─ 功能：批量操作、筛选等
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,300 @@
+<svg width="1800" height="1400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font-size: 32px; font-weight: bold; fill: #1e293b; }
+      .subtitle { font-size: 20px; font-weight: 600; fill: #dc2626; }
+      .section-title { font-size: 18px; font-weight: 700; fill: #0f172a; }
+      .warning-box { fill: #fef2f2; stroke: #dc2626; stroke-width: 3; rx: 10; }
+      .solution-box { fill: #f0fdf4; stroke: #059669; stroke-width: 3; rx: 10; }
+      .tech-box { fill: #ffffff; stroke: #94a3b8; stroke-width: 2; rx: 8; }
+      .critical { fill: #fee2e2; stroke: #dc2626; stroke-width: 2; }
+      .correct { fill: #dcfce7; stroke: #059669; stroke-width: 2; }
+      .bilibili-source { fill: #fef3c7; stroke: #f59e0b; stroke-width: 3; }
+      .local-source { fill: #dbeafe; stroke: #3b82f6; stroke-width: 3; }
+      .normalized { fill: #dcfce7; stroke: #059669; stroke-width: 3; }
+      .problem { fill: #fecaca; stroke: #dc2626; stroke-width: 2; stroke-dasharray: 5,5; }
+      .arrow-flow { stroke: #3b82f6; stroke-width: 3; fill: none; marker-end: url(#arrowhead); }
+      .arrow-warn { stroke: #dc2626; stroke-width: 3; fill: none; marker-end: url(#arrowhead-red); stroke-dasharray: 8,4; }
+
+      .label { font-size: 14px; font-weight: 600; fill: #1e293b; }
+      .detail { font-size: 12px; fill: #475569; }
+      .code { font-size: 11px; fill: #1e293b; font-family: 'Consolas', 'Monaco', monospace; }
+      .error-text { font-size: 13px; fill: #dc2626; font-weight: 600; }
+      .success-text { font-size: 13px; fill: #059669; font-weight: 600; }
+      .warning-text { font-size: 13px; fill: #b45309; font-weight: 600; }
+    </style>
+    <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+      <polygon points="0 0, 12 4, 0 8" fill="#3b82f6"/>
+    </marker>
+    <marker id="arrowhead-red" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+      <polygon points="0 0, 12 4, 0 8" fill="#dc2626"/>
+    </marker>
+  </defs>
+
+  <!-- 标题 -->
+  <text x="900" y="50" text-anchor="middle" class="title">多源视频拼接：时间基准问题与解决方案</text>
+  <text x="900" y="85" text-anchor="middle" class="subtitle">⚠️ 关键问题：VFR/CFR 混用与 Timebase 不一致</text>
+
+  <!-- ==================== 问题场景分析 ==================== -->
+
+  <g transform="translate(50, 120)">
+    <rect x="0" y="0" width="1700" height="280" class="warning-box" rx="10"/>
+    <text x="850" y="35" text-anchor="middle" class="section-title" fill="#dc2626">❌ 问题场景：时间基准不一致导致的播放异常</text>
+
+    <!-- 场景示例 -->
+    <g transform="translate(30, 60)">
+      <rect x="0" y="0" width="820" height="200" class="problem" rx="8"/>
+      <text x="410" y="25" text-anchor="middle" class="error-text">场景：Bilibili + 本地视频混合</text>
+
+      <g transform="translate(20, 45)">
+        <text x="0" y="0" class="warning-text">片段A (Bilibili):</text>
+        <text x="0" y="20" class="detail">• Timebase: 1/90000 (CFR, 固定帧率)</text>
+        <text x="0" y="40" class="detail">• 帧率: 60fps, 每帧间隔 1500 time units</text>
+        <text x="0" y="60" class="detail">• 经过B站转码，时间轴整齐</text>
+
+        <text x="0" y="90" class="warning-text">片段B (本地):</text>
+        <text x="0" y="110" class="detail">• Timebase: 1/15360 (VFR, 可变帧率)</text>
+        <text x="0" y="130" class="detail">• 帧率: 30fps (原始), 但时间戳不均匀</text>
+        <text x="0" y="150" class="detail">• 手机/OBS录屏，常见问题</text>
+      </g>
+
+      <g transform="translate(420, 45)">
+        <text x="0" y="0" class="error-text">→ 使用 concat 拼接后:</text>
+
+        <text x="0" y="30" class="detail">1. concat 以片段A为基准 (timebase 1/90000)</text>
+        <text x="0" y="50" class="detail">2. 播放器用A的尺子去衡量B</text>
+        <text x="0" y="70" class="detail">3. 片段B的30fps被当做60fps播放 → ❌ 2倍速!</text>
+        <text x="0" y="90" class="detail">4. 或者B的1/15360被强制转换为1/90000</text>
+        <text x="0" y="110" class="detail">5. 时间戳计算错误 → ❌ 音画不同步</text>
+
+        <rect x="0" y="130" width="380" height="50" fill="#dc2626" rx="4"/>
+        <text x="190" y="152" text-anchor="middle" class="code" fill="#ffffff">结果：播放速度异常 或 画面跳帧</text>
+      </g>
+    </g>
+
+    <!-- 根本原因 -->
+    <g transform="translate(870, 60)">
+      <rect x="0" y="0" width="800" height="200" class="problem" rx="8"/>
+      <text x="400" y="25" text-anchor="middle" class="error-text">🔍 根本原因分析</text>
+
+      <g transform="translate(20, 45)">
+        <text x="0" y="0" class="label">1. VFR vs CFR:</text>
+        <text x="0" y="20" class="detail">• CFR (恒定帧率): 每帧间隔相同, timebase一致</text>
+        <text x="0" y="40" class="detail">• VFR (可变帧率): 编码器优化, 省空间但时间戳不均匀</text>
+
+        <text x="0" y="70" class="label">2. Timebase 混乱:</text>
+        <text x="0" y="90" class="code">1/90000 (60fps CFR), 1/15360 (30fps VFR)</text>
+        <text x="0" y="110" class="code">1/1000 (录屏常见), 1/24000 (特殊设备)</text>
+
+        <text x="0" y="140" class="label">3. -vsync 0 的陷阱:</text>
+        <text x="0" y="160" class="detail">• "保持原时间戳" = 保持VFR的混乱状态</text>
+        <text x="0" y="180" class="detail">• CFR + VFR 混合 = ❌ 必定出问题</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- ==================== 解决方案A：强制标准化转码 ==================== -->
+
+  <text x="50" y="440" class="section-title">✅ 解决方案 A：强制标准化（推荐，速度快）</text>
+
+  <g transform="translate(50, 470)">
+    <rect x="0" y="0" width="850" height="450" class="solution-box" rx="10"/>
+    <text x="425" y="35" text-anchor="middle" class="success-text">阶段1: 严格标准化转码（所有素材必须经过）</text>
+
+    <!-- 核心原则 -->
+    <g transform="translate(30, 60)">
+      <rect x="0" y="0" width="790" height="50" fill="#059669" rx="6"/>
+      <text x="395" y="20" text-anchor="middle" class="code" fill="#ffffff" font-size="14">核心原则：放弃"直接使用"，所有素材统一转码</text>
+      <text x="395" y="40" text-anchor="middle" class="detail" fill="#ffffff">无论是Bilibili还是本地，无论是否"兼容"，全部强制转码</text>
+    </g>
+
+    <!-- Bilibili处理 -->
+    <g transform="translate(30, 125)">
+      <rect x="0" y="0" width="380" height="140" class="bilibili-source"/>
+      <text x="190" y="25" text-anchor="middle" class="section-title" fill="#b45309">Bilibili 源处理</text>
+
+      <text x="15" y="50" class="label">下载后必须转码:</text>
+      <text x="15" y="70" class="code">-r 60 -fps_mode cfr</text>
+      <text x="15" y="90" class="code">-video_track_timescale 90000</text>
+      <text x="15" y="110" class="code">-c:v libx264 -preset medium -crf 18</text>
+      <text x="15" y="130" class="detail">强制CFR, 固定timebase</text>
+    </g>
+
+    <!-- 本地处理 -->
+    <g transform="translate(430, 125)">
+      <rect x="0" y="0" width="390" height="140" class="local-source"/>
+      <text x="195" y="25" text-anchor="middle" class="section-title" fill="#1d4ed8">本地源处理</text>
+
+      <text x="15" y="50" class="label">❌ 移除"兼容检查直接使用"</text>
+      <text x="15" y="70" class="label">✓ 必须强制转码:</text>
+      <text x="15" y="90" class="code">-r 60 -fps_mode cfr</text>
+      <text x="15" y="110" class="code">-video_track_timescale 90000</text>
+      <text x="15" y="130" class="detail">即使是H.264也要转码!</text>
+    </g>
+
+    <!-- 关键参数说明 -->
+    <g transform="translate(30, 280)">
+      <rect x="0" y="0" width="790" height="140" class="tech-box"/>
+      <text x="395" y="25" text-anchor="middle" class="label">关键参数详解</text>
+
+      <g transform="translate(20, 40)">
+        <text x="0" y="0" class="warning-text">-r 60 -fps_mode cfr</text>
+        <text x="200" y="0" class="detail">强制输出60fps, CFR模式, 重新生成时间戳</text>
+      </g>
+
+      <g transform="translate(20, 65)">
+        <text x="0" y="0" class="warning-text">-video_track_timescale 90000</text>
+        <text x="300" y="0" class="detail">强制timebase为90000 (60fps标准)</text>
+      </g>
+
+      <g transform="translate(20, 90)">
+        <text x="0" y="0" class="warning-text">-vsync cfr (或 -vsync 1)</text>
+        <text x="250" y="0" class="detail">恒定帧率模式, 每帧时间间隔完全一致</text>
+      </g>
+
+      <g transform="translate(20, 115)">
+        <text x="0" y="0" class="success-text">✓ 禁止使用 -vsync 0 / -fps_mode passthrough</text>
+        <text x="400" y="0" class="detail">这个参数会保留原视频的VFR特性!</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- ==================== 解决方案B：Filter Complex ==================== -->
+
+  <text x="950" y="440" class="section-title">✅ 解决方案 B：Filter Complex（最稳健）</text>
+
+  <g transform="translate(950, 470)">
+    <rect x="0" y="0" width="800" height="450" class="solution-box" rx="10"/>
+    <text x="400" y="35" text-anchor="middle" class="success-text">使用 filter_complex 重绘每一帧</text>
+
+    <g transform="translate(30, 60)">
+      <rect x="0" y="0" width="740" height="370" class="tech-box"/>
+
+      <text x="370" y="25" text-anchor="middle" class="label">完整滤镜链示例:</text>
+
+      <g transform="translate(20, 40)">
+        <rect x="0" y="0" width="700" height="140" fill="#1e293b" rx="4"/>
+        <text x="20" y="20" class="code" fill="#ffffff">ffmpeg -i clip1.mp4 -i clip2.mp4 -i clip3.mp4 \</text>
+        <text x="20" y="40" class="code" fill="#ffffff">  -filter_complex \</text>
+        <text x="20" y="60" class="code" fill="#ffffff">    "[0:v]fps=60000/1001,settb=expr=1/90000,fps=60,round=round[v0]; \</text>
+        <text x="20" y="80" class="code" fill="#ffffff">     [1:v]fps=60000/1001,settb=expr=1/90000,fps=60,round=round[v1]; \</text>
+        <text x="20" y="100" class="code" fill="#ffffff">     [2:v]fps=60000/1001,settb=expr=1/90000,fps=60,round=round[v2]; \</text>
+        <text x="20" y="120" class="code" fill="#ffffff">     [v0][v1][v2]concat=n=3:v=1[outv]" \</text>
+        <text x="20" y="140" class="code" fill="#ffffff">  -map "[outv]" -c:v libx264 -r 60 output.mp4</text>
+      </g>
+
+      <g transform="translate(20, 195)">
+        <text x="0" y="0" class="success-text">优点：</text>
+        <text x="0" y="20" class="detail">✓ 彻底解决timebase不一致问题</text>
+        <text x="0" y="40" class="detail">✓ 强制统一帧率</text>
+        <text x="0" y="60" class="detail">✓ settb=expr=1/90000 重写时间戳</text>
+        <text x="0" y="80" class="detail">✓ fps滤镜处理VFR→CFR转换</text>
+      </g>
+
+      <g transform="translate(400, 195)">
+        <text x="0" y="0" class="warning-text">缺点：</text>
+        <text x="0" y="20" class="detail">• 处理速度慢 (重编码所有帧)</text>
+        <text x="0" y="40" class="detail">• CPU占用高</text>
+        <text x="0" y="60" class="detail">• 文件大小可能增加</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- ==================== 阶段2：精确裁剪（修正版） ==================== -->
+
+  <text x="50" y="960" class="section-title">阶段2: 精确裁剪技术（已修正）</text>
+
+  <g transform="translate(50, 990)">
+    <rect x="0" y="0" width="1700" height="180" class="tech-box" rx="8"/>
+
+    <g transform="translate(30, 30)">
+      <text x="0" y="0" class="label">裁剪命令（必须配合标准化使用）:</text>
+
+      <g transform="translate(0, 25)">
+        <rect x="0" y="0" width="1640" height="40" fill="#dcfce7" stroke="#059669" stroke-width="2" rx="4"/>
+        <text x="20" y="18" class="code" fill="#047857">ffmpeg -ss {start} -to {end} -i input.mp4 -c:v libx264 -preset fast -crf 18 -r 60 -fps_mode cfr -video_track_timescale 90000 clip.mp4</text>
+      </g>
+
+      <g transform="translate(0, 80)">
+        <text x="0" y="0" class="success-text">✅ 关键点：裁剪时也强制统一参数</text>
+        <text x="0" y="20" class="detail">• 裁剪输出的片段也要符合统一标准</text>
+        <text x="0" y="40" class="detail">• 避免片段间参数不一致</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- ==================== 阶段3：拼接策略（修正版） ==================== -->
+
+  <text x="50" y="1200" class="section-title">阶段3: 拼接策略（已修正）</text>
+
+  <g transform="translate(50, 1230)">
+    <rect x="0" y="0" width="1700" height="140" class="solution-box" rx="10"/>
+
+    <g transform="translate(30, 30)">
+      <text x="0" y="0" class="success-text">✅ 前提条件：所有片段已完成标准化转码</text>
+
+      <g transform="translate(0, 30)">
+        <text x="0" y="0" class="label">concat demuxer (现在可以安全使用):</text>
+        <text x="0" y="20" class="code">file 'clip1.mp4' + file 'clip2.mp4' + ... → concat.txt</text>
+        <text x="0" y="40" class="code">ffmpeg -f concat -safe 0 -i concat.txt -c copy output.mp4</text>
+        <text x="0" y="60" class="detail">✓ 所有片段timebase一致 (1/90000)</text>
+        <text x="0" y="80" class="detail">✓ 所有片段帧率一致 (60fps CFR)</text>
+      </g>
+    </g>
+
+    <g transform="translate(900, 30)">
+      <text x="0" y="0" class="success-text">⚡ 性能优化：</text>
+      <text x="0" y="30" class="detail">• 标准化转码可以并行处理</text>
+      <text x="0" y="50" class="detail">• 拼接时使用 -c copy 无重编码</text>
+      <text x="0" y="70" class="detail">• 整体速度可接受</text>
+    </g>
+  </g>
+
+  <!-- ==================== 技术总结 ==================== -->
+
+  <g transform="translate(50, 1410)">
+    <rect x="0" y="0" width="1700" height="220" fill="#fef3c7" stroke="#f59e0b" stroke-width="3" rx="10"/>
+    <text x="850" y="35" text-anchor="middle" class="section-title" fill="#b45309">🎯 核心要点总结</text>
+
+    <!-- 要点1 -->
+    <g transform="translate(30, 55)">
+      <rect x="0" y="0" width="400" height="140" fill="#dcfce7" stroke="#059669" stroke-width="2" rx="8"/>
+      <text x="200" y="25" text-anchor="middle" class="success-text">1. 必须强制CFR</text>
+      <text x="20" y="50" class="detail">✓ -fps_mode cfr (或 -vsync 1)</text>
+      <text x="20" y="70" class="detail">✓ -r 60 固定帧率</text>
+      <text x="20" y="90" class="detail">✓ 禁止 -vsync 0 (保留VFR)</text>
+      <text x="20" y="115" class="error-text">❌ VFR + CFR 混合 = 必挂</text>
+    </g>
+
+    <!-- 要点2 -->
+    <g transform="translate(450, 55)">
+      <rect x="0" y="0" width="400" height="140" fill="#dcfce7" stroke="#059669" stroke-width="2" rx="8"/>
+      <text x="200" y="25" text-anchor="middle" class="success-text">2. 统一Timebase</text>
+      <text x="20" y="50" class="detail">✓ -video_track_timescale 90000</text>
+      <text x="20" y="70" class="detail">✓ 所有片段用相同timebase</text>
+      <text x="20" y="90" class="detail">✓ 防止1/15360, 1/1000混入</text>
+      <text x="20" y="115" class="error-text">❌ Timebase不一致 = 播放异常</text>
+    </g>
+
+    <!-- 要点3 -->
+    <g transform="translate(870, 55)">
+      <rect x="0" y="0" width="400" height="140" fill="#dcfce7" stroke="#059669" stroke-width="2" rx="8"/>
+      <text x="200" y="25" text-anchor="middle" class="success-text">3. 全量转码策略</text>
+      <text x="20" y="50" class="detail">✓ 放弃"兼容检查直接使用"</text>
+      <text x="20" y="70" class="detail">✓ 本地H.264也要转码</text>
+      <text x="20" y="90" class="detail">✓ 彻底消除源头差异</text>
+      <text x="20" y="115" class="error-text">❌ "优化"=埋雷隐患</text>
+    </g>
+
+    <!-- 要点4 -->
+    <g transform="translate(1290, 55)">
+      <rect x="0" y="0" width="400" height="140" fill="#dcfce7" stroke="#059669" stroke-width="2" rx="8"/>
+      <text x="200" y="25" text-anchor="middle" class="success-text">4. 两种方案选择</text>
+      <text x="20" y="50" class="detail">方案A: 标准化+concat (快)</text>
+      <text x="20" y="70" class="detail">方案B: filter_complex (稳)</text>
+      <text x="20" y="90" class="detail">• 推荐: 方案A (速度快)</text>
+      <text x="20" y="115" class="error-text">❌ 绝不混用VFR/CFR</text>
+    </g>
+  </g>
+
+</svg>

@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "main": "src/main/index.cjs",
   "scripts": {
-    "dev": "powershell -Command \"$env:VITE_DEV_SERVER_URL='http://localhost:5173'; npx electron .\"",
+    "dev": "powershell -Command \"$env:VITE_DEV_SERVER_URL = if ($env:VITE_DEV_SERVER_URL) { $env:VITE_DEV_SERVER_URL } else { 'http://localhost:5173' }; npx electron .\"",
     "build": "electron-builder"
   },
   "dependencies": {

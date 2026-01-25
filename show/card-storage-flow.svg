@@ -1,0 +1,367 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1600">
+  <!-- 背景 -->
+  <rect width="1400" height="1600" fill="#f5f5f5"/>
+
+  <!-- 标题 -->
+  <text x="700" y="40" text-anchor="middle" font-size="24" font-weight="bold" fill="#333">卡片生成与存储流程 - 完整字段表</text>
+
+  <!-- 第1部分：用户输入 -->
+  <g transform="translate(50, 80)">
+    <rect width="400" height="150" fill="white" stroke="#999" stroke-width="2"/>
+    <text x="200" y="25" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">1. 用户输入</text>
+    <text x="20" y="50" font-size="12" fill="#555">title: "舞蹈片段"</text>
+    <text x="20" y="70" font-size="12" fill="#555">tags: ["流行", "韩舞"]</text>
+    <text x="20" y="90" font-size="12" fill="#555">bpm: "128"</text>
+    <text x="20" y="110" font-size="12" fill="#555">rangeStart: 10.967</text>
+    <text x="20" y="130" font-size="12" fill="#555">rangeEnd: 20.593</text>
+  </g>
+
+  <!-- 箭头 -->
+  <line x1="250" y1="230" x2="250" y2="270" stroke="#666" stroke-width="2"/>
+  <polygon points="250,270 245,260 255,260" fill="#666"/>
+
+  <!-- 第2部分：构建卡片数据 -->
+  <g transform="translate(50, 270)">
+    <rect width="400" height="180" fill="#597ef7" stroke="#2f54eb" stroke-width="2"/>
+    <text x="200" y="25" text-anchor="middle" font-size="16" font-weight="bold" fill="white">2. 构建卡片数据</text>
+    <text x="200" y="45" text-anchor="middle" font-size="12" fill="white">useCardFormActions.js</text>
+    <text x="20" y="70" font-size="11" fill="white" font-family="monospace">const cardData = {</text>
+    <text x="30" y="90" font-size="11" fill="white" font-family="monospace">title, start, end,</text>
+    <text x="30" y="110" font-size="11" fill="white" font-family="monospace">tags, clipTags,</text>
+    <text x="30" y="130" font-size="11" fill="white" font-family="monospace">bpm, notes, visibility</text>
+    <text x="20" y="150" font-size="11" fill="white" font-family="monospace">}</text>
+  </g>
+
+  <!-- 分支箭头 -->
+  <line x1="150" y1="450" x2="100" y2="500" stroke="#666" stroke-width="2"/>
+  <polygon points="100,500 90,495 90,510" fill="#666"/>
+  <line x1="350" y1="450" x2="400" y2="500" stroke="#666" stroke-width="2"/>
+  <polygon points="400,500 410,495 410,510" fill="#666"/>
+
+  <!-- 第3部分：B站卡片 -->
+  <g transform="translate(20, 500)">
+    <rect width="280" height="250" fill="#00a1d6" stroke="#0050b3" stroke-width="2"/>
+    <text x="140" y="25" text-anchor="middle" font-size="14" font-weight="bold" fill="white">3. B站卡片流程</text>
+    <text x="15" y="50" font-size="11" fill="white" font-family="monospace">cardData.bvid = bvid</text>
+    <text x="15" y="70" font-size="11" fill="white" font-family="monospace">cardData.aid = aid</text>
+    <text x="15" y="90" font-size="11" fill="white" font-family="monospace">cardData.cid = cid</text>
+    <text x="15" y="120" font-size="11" fill="white" font-family="monospace">localPath = ""</text>
+    <text x="15" y="140" font-size="11" fill="white" font-family="monospace">localFps = 0</text>
+    <text x="15" y="170" font-size="11" fill="white" font-family="monospace">const now = Date.now()</text>
+    <text x="15" y="190" font-size="11" fill="white" font-family="monospace">createdAt = now</text>
+    <text x="15" y="210" font-size="11" fill="white" font-family="monospace">updatedAt = now</text>
+  </g>
+
+  <!-- 第4部分：本地卡片 -->
+  <g transform="translate(320, 500)">
+    <rect width="280" height="250" fill="#52c41a" stroke="#389e0d" stroke-width="2"/>
+    <text x="140" y="25" text-anchor="middle" font-size="14" font-weight="bold" fill="white">4. 本地卡片流程</text>
+    <text x="15" y="50" font-size="11" fill="white" font-weight="bold">// 生成CV号</text>
+    <text x="15" y="70" font-size="11" fill="white" font-family="monospace">generateLocalCVId()</text>
+    <text x="15" y="90" font-size="10" fill="white">→ "CV1a2B3c4D"</text>
+    <text x="15" y="120" font-size="11" fill="white" font-weight="bold">// 本地字段</text>
+    <text x="15" y="140" font-size="11" fill="white" font-family="monospace">localPath = file.path</text>
+    <text x="15" y="160" font-size="11" fill="white" font-family="monospace">localFps = fps || 30</text>
+    <text x="15" y="190" font-size="11" fill="white" font-weight="bold">// B站字段清空</text>
+    <text x="15" y="210" font-size="11" fill="white" font-family="monospace">bvid = "", aid = 0</text>
+    <text x="15" y="230" font-size="11" fill="white" font-family="monospace">cid = 0</text>
+  </g>
+
+  <!-- 箭头到存储 -->
+  <line x1="160" y1="750" x2="220" y2="800" stroke="#666" stroke-width="2"/>
+  <polygon points="220,800 210,795 210,810" fill="#666"/>
+  <line x1="460" y1="750" x2="220" y2="800" stroke="#666" stroke-width="2"/>
+  <polygon points="220,800 230,795 230,810" fill="#666"/>
+
+  <!-- 第5部分：存储 -->
+  <g transform="translate(50, 800)">
+    <rect width="400" height="150" fill="#fa8c16" stroke="#d46b08" stroke-width="2"/>
+    <text x="200" y="25" text-anchor="middle" font-size="16" font-weight="bold" fill="white">5. 存储</text>
+    <rect x="20" y="40" width="180" height="90" fill="white" fill-opacity="0.9"/>
+    <text x="110" y="60" text-anchor="middle" font-size="12" font-weight="bold" fill="#0050b3">B站卡片</text>
+    <text x="30" y="80" font-size="10" fill="#333">POST /api/cards</text>
+    <text x="30" y="95" font-size="10" fill="#333">服务器生成CV号</text>
+    <text x="30" y="110" font-size="10" fill="#333">保存到data.json</text>
+    <rect x="210" y="40" width="180" height="90" fill="white" fill-opacity="0.9"/>
+    <text x="300" y="60" text-anchor="middle" font-size="12" font-weight="bold" fill="#389e0d">本地卡片</text>
+    <text x="220" y="80" font-size="10" fill="#333">addLocalCard()</text>
+    <text x="220" y="95" font-size="10" fill="#333">保存到localStorage</text>
+    <text x="220" y="110" font-size="10" fill="#333">key: "localCards"</text>
+  </g>
+
+  <!-- 完整字段总表 - 19个字段 -->
+  <g transform="translate(520, 80)">
+    <rect width="850" height="1070" fill="white" stroke="#999" stroke-width="2"/>
+    <text x="425" y="25" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">卡片字段总表 (19个字段)</text>
+
+    <!-- 表头 -->
+    <rect x="10" y="40" width="830" height="25" fill="#f0f0f0" stroke="#999"/>
+    <text x="20" y="57" font-size="11" font-weight="bold">字段名</text>
+    <text x="100" y="57" font-size="11" font-weight="bold">类型</text>
+    <text x="170" y="57" font-size="11" font-weight="bold">B站卡片</text>
+    <text x="300" y="57" font-size="11" font-weight="bold">本地卡片</text>
+    <text x="440" y="57" font-size="11" font-weight="bold">说明</text>
+    <text x="650" y="57" font-size="11" font-weight="bold">用途</text>
+
+    <!-- 表格内容 -->
+    <g font-size="10" font-family="monospace">
+      <!-- 1. id -->
+      <rect x="10" y="65" width="830" height="22" fill="white" stroke="#ccc"/>
+      <text x="20" y="80" fill="#d46b08" font-weight="bold">id</text>
+      <text x="100" y="80">String</text>
+      <text x="170" y="80" fill="#0050b3">✅ CV号</text>
+      <text x="300" y="80" fill="#389e0d">✅ CV号</text>
+      <text x="440" y="80" font-family="Arial">唯一标识符</text>
+      <text x="650" y="80" font-family="Arial">主键/URL</text>
+
+      <!-- 2. userId -->
+      <rect x="10" y="87" width="830" height="22" fill="#fafafa" stroke="#ccc"/>
+      <text x="20" y="102">userId</text>
+      <text x="100" y="102">String</text>
+      <text x="170" y="102" fill="#0050b3">用户ID</text>
+      <text x="300" y="102" fill="#389e0d">"local"</text>
+      <text x="440" y="102" font-family="Arial">所有者标识</text>
+      <text x="650" y="102" font-family="Arial">权限控制</text>
+
+      <!-- 3. title -->
+      <rect x="10" y="109" width="830" height="22" fill="white" stroke="#ccc"/>
+      <text x="20" y="124">title</text>
+      <text x="100" y="124">String</text>
+      <text x="170" y="124" fill="#0050b3">✅</text>
+      <text x="300" y="124" fill="#389e0d">✅</text>
+      <text x="440" y="124" font-family="Arial">卡片标题</text>
+      <text x="650" y="124" font-family="Arial">显示名称</text>
+
+      <!-- 4. source -->
+      <rect x="10" y="131" width="830" height="22" fill="#fafafa" stroke="#ccc"/>
+      <text x="20" y="146">source</text>
+      <text x="100" y="146">String</text>
+      <text x="170" y="146" fill="#0050b3">"bilibili"</text>
+      <text x="300" y="146" fill="#389e0d">"local"</text>
+      <text x="440" y="146" font-family="Arial">来源标识</text>
+      <text x="650" y="146" font-family="Arial">区分来源</text>
+
+      <!-- 5. bvid -->
+      <rect x="10" y="153" width="830" height="22" fill="white" stroke="#ccc"/>
+      <text x="20" y="168" fill="#d46b08" font-weight="bold">bvid</text>
+      <text x="100" y="168">String</text>
+      <text x="170" y="168" fill="#0050b3">✅ BVID</text>
+      <text x="300" y="168" fill="#389e0d">""</text>
+      <text x="440" y="168" font-family="Arial">B站视频ID</text>
+      <text x="650" y="168" font-family="Arial">加载视频</text>
+
+      <!-- 6. aid -->
+      <rect x="10" y="175" width="830" height="22" fill="#fafafa" stroke="#ccc"/>
+      <text x="20" y="190">aid</text>
+      <text x="100" y="190">Number</text>
+      <text x="170" y="190" fill="#0050b3">✅ aid</text>
+      <text x="300" y="190" fill="#389e0d">0</text>
+      <text x="440" y="190" font-family="Arial">B站AV号</text>
+      <text x="650" y="190" font-family="Arial">API调用</text>
+
+      <!-- 7. cid -->
+      <rect x="10" y="197" width="830" height="22" fill="white" stroke="#ccc"/>
+      <text x="20" y="212">cid</text>
+      <text x="100" y="212">Number</text>
+      <text x="170" y="212" fill="#0050b3">✅ cid</text>
+      <text x="300" y="212" fill="#389e0d">0</text>
+      <text x="440" y="212" font-family="Arial">B站分P ID</text>
+      <text x="650" y="212" font-family="Arial">DASH播放</text>
+
+      <!-- 8. localPath -->
+      <rect x="10" y="219" width="830" height="22" fill="#fafafa" stroke="#ccc"/>
+      <text x="20" y="234" fill="#d46b08" font-weight="bold">localPath</text>
+      <text x="100" y="234">String</text>
+      <text x="170" y="234" fill="#0050b3">""</text>
+      <text x="300" y="234" fill="#389e0d">✅ 路径</text>
+      <text x="440" y="234" font-family="Arial">本地文件路径</text>
+      <text x="650" y="234" font-family="Arial">播放本地视频</text>
+
+      <!-- 9. localDuration -->
+      <rect x="10" y="241" width="830" height="22" fill="white" stroke="#ccc"/>
+      <text x="20" y="256">localDuration</text>
+      <text x="100" y="256">Number</text>
+      <text x="170" y="256" fill="#0050b3">0</text>
+      <text x="300" y="256" fill="#389e0d">✅ 秒</text>
+      <text x="440" y="256" font-family="Arial">视频总时长</text>
+      <text x="650" y="256" font-family="Arial">时间轴限制</text>
+
+      <!-- 10. localFileSize -->
+      <rect x="10" y="263" width="830" height="22" fill="#fafafa" stroke="#ccc"/>
+      <text x="20" y="278">localFileSize</text>
+      <text x="100" y="278">Number</text>
+      <text x="170" y="278" fill="#0050b3">0</text>
+      <text x="300" y="278" fill="#389e0d">✅ 字节</text>
+      <text x="440" y="278" font-family="Arial">文件大小</text>
+      <text x="650" y="278" font-family="Arial">显示信息</text>
+
+      <!-- 11. localWidth -->
+      <rect x="10" y="285" width="830" height="22" fill="white" stroke="#ccc"/>
+      <text x="20" y="300">localWidth</text>
+      <text x="100" y="300">Number</text>
+      <text x="170" y="300" fill="#0050b3">0</text>
+      <text x="300" y="300" fill="#389e0d">✅ px</text>
+      <text x="440" y="300" font-family="Arial">视频宽度</text>
+      <text x="650" y="300" font-family="Arial">播放器尺寸</text>
+
+      <!-- 12. localHeight -->
+      <rect x="10" y="307" width="830" height="22" fill="#fafafa" stroke="#ccc"/>
+      <text x="20" y="322">localHeight</text>
+      <text x="100" y="322">Number</text>
+      <text x="170" y="322" fill="#0050b3">0</text>
+      <text x="300" y="322" fill="#389e0d">✅ px</text>
+      <text x="440" y="322" font-family="Arial">视频高度</text>
+      <text x="650" y="322" font-family="Arial">播放器尺寸</text>
+
+      <!-- 13. localFps -->
+      <rect x="10" y="329" width="830" height="22" fill="white" stroke="#ccc"/>
+      <text x="20" y="344" fill="#d46b08" font-weight="bold">localFps</text>
+      <text x="100" y="344">Number</text>
+      <text x="170" y="344" fill="#0050b3">0</text>
+      <text x="300" y="344" fill="#389e0d">✅ fps</text>
+      <text x="440" y="344" font-family="Arial">视频帧率</text>
+      <text x="650" y="344" font-family="Arial" fill="#d46b08">ZX帧调整!</text>
+
+      <!-- 14. start -->
+      <rect x="10" y="351" width="830" height="22" fill="#fafafa" stroke="#ccc"/>
+      <text x="20" y="366">start</text>
+      <text x="100" y="366">Number</text>
+      <text x="170" y="366" fill="#0050b3">✅ 秒</text>
+      <text x="300" y="366" fill="#389e0d">✅ 秒</text>
+      <text x="440" y="366" font-family="Arial">开始时间(秒)</text>
+      <text x="650" y="366" font-family="Arial">裁剪区间</text>
+
+      <!-- 15. end -->
+      <rect x="10" y="373" width="830" height="22" fill="white" stroke="#ccc"/>
+      <text x="20" y="388">end</text>
+      <text x="100" y="388">Number</text>
+      <text x="170" y="388" fill="#0050b3">✅ 秒</text>
+      <text x="300" y="388" fill="#389e0d">✅ 秒</text>
+      <text x="440" y="388" font-family="Arial">结束时间(秒)</text>
+      <text x="650" y="388" font-family="Arial">裁剪区间</text>
+
+      <!-- 16. tags -->
+      <rect x="10" y="395" width="830" height="22" fill="#fafafa" stroke="#ccc"/>
+      <text x="20" y="410">tags</text>
+      <text x="100" y="410">Array</text>
+      <text x="170" y="410" fill="#0050b3">✅ []</text>
+      <text x="300" y="410" fill="#389e0d">✅ []</text>
+      <text x="440" y="410" font-family="Arial">标签列表</text>
+      <text x="650" y="410" font-family="Arial">分类筛选</text>
+
+      <!-- 17. clipTags -->
+      <rect x="10" y="417" width="830" height="22" fill="white" stroke="#ccc"/>
+      <text x="20" y="432">clipTags</text>
+      <text x="100" y="432">Array</text>
+      <text x="170" y="432" fill="#0050b3">✅ []</text>
+      <text x="300" y="432" fill="#389e0d">✅ []</text>
+      <text x="440" y="432" font-family="Arial">剪辑标签</text>
+      <text x="650" y="432" font-family="Arial">段落标记</text>
+
+      <!-- 18. bpm -->
+      <rect x="10" y="439" width="830" height="22" fill="#fafafa" stroke="#ccc"/>
+      <text x="20" y="454">bpm</text>
+      <text x="100" y="454">String</text>
+      <text x="170" y="454" fill="#0050b3">✅</text>
+      <text x="300" y="454" fill="#389e0d">✅</text>
+      <text x="440" y="454" font-family="Arial">BPM值</text>
+      <text x="650" y="454" font-family="Arial">节奏参考</text>
+
+      <!-- 19. notes -->
+      <rect x="10" y="461" width="830" height="22" fill="white" stroke="#ccc"/>
+      <text x="20" y="476">notes</text>
+      <text x="100" y="476">String</text>
+      <text x="170" y="476" fill="#0050b3">✅</text>
+      <text x="300" y="476" fill="#389e0d">✅</text>
+      <text x="440" y="476" font-family="Arial">备注信息</text>
+      <text x="650" y="476" font-family="Arial">用户笔记</text>
+
+      <!-- 20. visibility -->
+      <rect x="10" y="483" width="830" height="22" fill="#fafafa" stroke="#ccc"/>
+      <text x="20" y="498">visibility</text>
+      <text x="100" y="498">String</text>
+      <text x="170" y="498" fill="#0050b3">pub/pri</text>
+      <text x="300" y="498" fill="#389e0d">private</text>
+      <text x="440" y="498" font-family="Arial">可见性</text>
+      <text x="650" y="498" font-family="Arial">访问控制</text>
+
+      <!-- 21. createdAt -->
+      <rect x="10" y="505" width="830" height="22" fill="white" stroke="#ccc"/>
+      <text x="20" y="520">createdAt</text>
+      <text x="100" y="520">Number</text>
+      <text x="170" y="520" fill="#0050b3">✅ ms</text>
+      <text x="300" y="520" fill="#389e0d">✅ ms</text>
+      <text x="440" y="520" font-family="Arial">创建时间戳</text>
+      <text x="650" y="520" font-family="Arial">排序显示</text>
+
+      <!-- 22. updatedAt -->
+      <rect x="10" y="527" width="830" height="22" fill="#fafafa" stroke="#ccc"/>
+      <text x="20" y="542">updatedAt</text>
+      <text x="100" y="542">Number</text>
+      <text x="170" y="542" fill="#0050b3">✅ ms</text>
+      <text x="300" y="542" fill="#389e0d">✅ ms</text>
+      <text x="440" y="542" font-family="Arial">更新时间戳</text>
+      <text x="650" y="542" font-family="Arial">排序显示</text>
+    </g>
+
+    <!-- 统计信息 -->
+    <g transform="translate(10, 560)">
+      <rect width="830" height="80" fill="#f5f5f5" stroke="#999"/>
+      <text x="10" y="20" font-size="12" font-weight="bold" fill="#333">📊 字段统计:</text>
+      <text x="10" y="40" font-size="11" fill="#555">• 总计: <tspan font-weight="bold" fill="#d46b08">22个字段</tspan> (包括userId)</text>
+      <text x="10" y="58" font-size="11" fill="#555">• 关键字段(橙色): 5个 (id, bvid, aid, cid, localPath, localFps)</text>
+      <text x="10" y="76" font-size="11" fill="#555">• B站特有: bvid, aid, cid | 本地特有: localPath, localDuration, localFps, localWidth, localHeight</text>
+    </g>
+
+    <!-- 图例 -->
+    <g transform="translate(10, 650)">
+      <rect width="830" height="100" fill="#fff9e6" stroke="#ffd666"/>
+      <text x="10" y="20" font-size="12" font-weight="bold" fill="#333">🎯 图例说明:</text>
+      <rect x="10" y="35" width="15" height="15" fill="#d46b08"/>
+      <text x="30" y="47" font-size="11" fill="#555">橙色 = 关键字段</text>
+      <rect x="150" y="35" width="15" height="15" fill="#0050b3"/>
+      <text x="170" y="47" font-size="11" fill="#555">蓝色 = B站卡片</text>
+      <rect x="300" y="35" width="15" height="15" fill="#389e0d"/>
+      <text x="320" y="47" font-size="11" fill="#555">绿色 = 本地卡片</text>
+      <text x="10" y="70" font-size="11" fill="#d46b08" font-weight="bold">关键字段用途:</text>
+      <text x="10" y="87" font-size="10" fill="#555">• localFps: ZX键帧级调整 (1/fps = 1帧时长)</text>
+      <text x="350" y="87" font-size="10" fill="#555">• bvid/aid/cid: B站视频加载和API</text>
+      <text x="650" y="87" font-size="10" fill="#555">• id: 卡片唯一标识</text>
+    </g>
+
+    <!-- 数据流向 -->
+    <g transform="translate(10, 760)">
+      <text x="0" y="0" font-size="12" font-weight="bold" fill="#333">🔄 数据流向:</text>
+      <text x="0" y="25" font-size="11" fill="#555">用户输入 → 构建卡片数据 → 分支处理 → 存储</text>
+      <text x="0" y="45" font-size="11" fill="#555">├─ B站: POST /api/cards → 服务器生成CV → data.json</text>
+      <text x="0" y="65" font-size="11" fill="#555">└─ 本地: 生成CV → localStorage</text>
+      <text x="0" y="90" font-size="11" fill="#d46b08" font-weight="bold">统一格式: 所有卡片使用CV号 + 毫秒时间戳</text>
+    </g>
+
+    <!-- 完整性说明 -->
+    <g transform="translate(10, 870)">
+      <text x="0" y="0" font-size="12" font-weight="bold" fill="#333">✅ 字段完整性:</text>
+      <text x="0" y="25" font-size="11" fill="#555">• B站卡片新增字段: aid, cid, localFps (设为0)</text>
+      <text x="0" y="45" font-size="11" fill="#555">• 本地卡片新增字段: CV号ID (generateLocalCVId), localFps</text>
+      <text x="0" y="65" font-size="11" fill="#555">• 时间戳统一: 毫秒时间戳 (Number类型)</text>
+      <text x="0" y="85" font-size="11" fill="#555">• 结构一致: 两种来源共享相同的22个字段schema</text>
+      <text x="0" y="110" font-size="11" fill="#555">• title字段: B站使用视频标题，本地使用用户输入</text>
+    </g>
+
+    <!-- 字段分类 -->
+    <g transform="translate(10, 995)">
+      <text x="0" y="0" font-size="12" font-weight="bold" fill="#333">📂 字段分类:</text>
+      <text x="0" y="25" font-size="11" fill="#555">• ID类(2): id, userId</text>
+      <text x="200" y="25" font-size="11" fill="#555">• 基础信息(3): title, source, visibility</text>
+      <text x="450" y="25" font-size="11" fill="#555">• B站字段(3): bvid, aid, cid</text>
+      <text x="0" y="45" font-size="11" fill="#555">• 本地字段(5): localPath, localDuration, localFileSize, localWidth, localHeight</text>
+      <text x="450" y="45" font-size="11" fill="#555">• 时间(2): start, end</text>
+      <text x="0" y="65" font-size="11" fill="#555">• 标签(2): tags, clipTags</text>
+      <text x="200" y="65" font-size="11" fill="#555">• 其他(3): bpm, notes, localFps</text>
+      <text x="450" y="65" font-size="11" fill="#555">• 时间戳(2): createdAt, updatedAt</text>
+    </g>
+  </g>
+
+  <!-- 底部信息 -->
+  <text x="700" y="1550" text-anchor="middle" font-size="12" fill="#999">Card Storage Flow v2.0 (Complete) | Generated by Claude Code | Total: 22 fields</text>
+</svg>

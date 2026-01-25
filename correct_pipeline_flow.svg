@@ -1,0 +1,214 @@
+<svg width="1400" height="1100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .box { fill: #f0f4f8; stroke: #334155; stroke-width: 2; }
+      .box-process { fill: #dbeafe; stroke: #1e40af; stroke-width: 2; }
+      .box-error { fill: #fee2e2; stroke: #dc2626; stroke-width: 2; }
+      .box-success { fill: #dcfce7; stroke: #16a34a; stroke-width: 2; }
+      .box-warning { fill: #fef3c7; stroke: #d97706; stroke-width: 2; }
+      .text { font-family: monospace; font-size: 11px; fill: #1e293b; }
+      .text-title { font-family: sans-serif; font-size: 14px; font-weight: bold; fill: #0f172a; }
+      .text-small { font-family: monospace; font-size: 9px; fill: #64748b; }
+      .arrow { stroke: #3b82f6; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .arrow-error { stroke: #ef4444; stroke-width: 2; fill: none; marker-end: url(#arrowhead-error); }
+      .arrow-success { stroke: #22c55e; stroke-width: 2; fill: none; marker-end: url(#arrowhead-success); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#3b82f6" />
+    </marker>
+    <marker id="arrowhead-error" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#ef4444" />
+    </marker>
+    <marker id="arrowhead-success" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#22c55e" />
+    </marker>
+  </defs>
+
+  <!-- 标题 -->
+  <text x="700" y="25" text-anchor="middle" class="text-title" font-size="20">正确的异构视频拼接方案：Filter Complex</text>
+
+  <!-- 错误方案对比 -->
+  <g transform="translate(50, 50)">
+    <rect x="0" y="0" width="400" height="180" rx="5" class="box-error" />
+    <text x="10" y="20" class="text-title">❌ 错误方案：Concat Demuxer + Stream Copy</text>
+
+    <text x="10" y="45" class="text-title">致命问题：</text>
+    <text x="10" y="60" class="text">1. concat demuxer 工作在容器层</text>
+    <text x="10" y="75" class="text">2. -c:v copy 不重写视频内部时间戳</text>
+    <text x="10" y="90" class="text">3. 播放器沿用第一个片段的时间基准</text>
+
+    <text x="10" y="110" class="text-title">结果：</text>
+    <text x="10" y="125" class="text">• 24fps 时间基准衡量 25fps 视频</text>
+    <text x="10" y="140" class="text">• 第二个片段慢速播放 (慢 4%)</text>
+    <text x="10" y="155" class="text">• 总时长错误 (52s vs 50.36s)</text>
+    <text x="10" y="170" class="text">• 拼接处有停顿帧</text>
+  </g>
+
+  <!-- 正确方案 -->
+  <g transform="translate(950, 50)">
+    <rect x="0" y="0" width="400" height="180" rx="5" class="box-success" />
+    <text x="10" y="20" class="text-title">✅ 正确方案：Filter Complex</text>
+
+    <text x="10" y="45" class="text-title">核心机制：</text>
+    <text x="10" y="60" class="text">1. filter complex 工作在解码层</text>
+    <text x="10" y="75" class="text">2. 重新计算所有帧的 PTS</text>
+    <text x="10" y="90" class="text">3. 生成连续的时间轴</text>
+
+    <text x="10" y="110" class="text-title">结果：</text>
+    <text x="10" y="125" class="text">• 所有片段统一帧率 (30fps)</text>
+    <text x="10" y="140" class="text">• 播放速度正常</text>
+    <text x="10" y="155" class="text">• 总时长精确 (50.36s)</text>
+    <text x="10" y="170" class="text">• 无停顿帧，流畅播放</text>
+  </g>
+
+  <!-- 输入视频 -->
+  <g transform="translate(50, 260)">
+    <rect x="0" y="0" width="280" height="150" rx="5" class="box" />
+    <text x="10" y="20" class="text-title">输入 1: 源视频 (24fps)</text>
+    <text x="10" y="40" class="text">• 帧率: 24 fps</text>
+    <text x="10" y="55" class="text">• 分辨率: 1536x1080</text>
+    <text x="10" y="70" class="text">• 编码: H.264 yuvj422p</text>
+    <text x="10" y="85" class="text">• 音频: 无 (需添加静音)</text>
+    <text x="10" y="100" class="text">• 时长: 4.79 秒</text>
+  </g>
+
+  <g transform="translate(1070, 260)">
+    <rect x="0" y="0" width="280" height="150" rx="5" class="box" />
+    <text x="10" y="20" class="text-title">输入 2: 源视频 (25fps)</text>
+    <text x="10" y="40" class="text">• 帧率: 25 fps</text>
+    <text x="10" y="55" class="text">• 分辨率: 1280x720</text>
+    <text x="10" y="70" class="text">• 编码: H.264 yuv420p</text>
+    <text x="10" y="85" class="text">• 音频: AAC 48kHz</text>
+    <text x="10" y="100" class="text">• 时长: 45.57 秒</text>
+  </g>
+
+  <!-- 箭头 -->
+  <path d="M 190 410 L 190 450 L 550 450" class="arrow" />
+  <path d="M 1210 410 L 1210 450 L 850 450" class="arrow" />
+
+  <!-- Filter Complex 处理 -->
+  <g transform="translate(300, 450)">
+    <rect x="0" y="0" width="800" height="350" rx="5" class="box-process" />
+    <text x="10" y="20" class="text-title" font-size="16">Filter Complex 处理流程</text>
+
+    <!-- 步骤 1: 视频标准化 -->
+    <text x="10" y="45" class="text-title" fill="#dc2626">步骤 1: 视频标准化 (每个输入独立处理)</text>
+
+    <rect x="10" y="55" width="780" height="90" fill="#1e293b" />
+    <text x="15" y="70" class="text" fill="#ffffff">[0:v] scale=1920:1080:force_original_aspect_ratio=decrease,</text>
+    <text x="15" y="83" class="text" fill="#ffffff">      pad=1920:1080:(ow-iw)/2:(oh-ih)/2,</text>
+    <text x="15" y="96" class="text" fill="#ffffff">      fps=30,</text>
+    <text x="15" y="109" class="text" fill="#ffffff">      format=yuv420p[v0]</text>
+
+    <text x="10" y="125" class="text-small">处理说明：</text>
+    <text x="10" y="138" class="text-small">• scale: 缩放到目标分辨率 (保持比例)</text>
+    <text x="250" y="138" class="text-small">• pad: 填充黑边居中</text>
+    <text x="480" y="138" class="text-small">• fps: 统一为 30fps</text>
+
+    <!-- 步骤 2: 音频标准化 -->
+    <text x="10" y="160" class="text-title" fill="#dc2626">步骤 2: 音频标准化 (每个输入独立处理)</text>
+
+    <rect x="10" y="170" width="780" height="40" fill="#1e293b" />
+    <text x="15" y="185" class="text" fill="#ffffff">[0:a] aformat=sample_rates=48000:channel_layouts=stereo[a0]</text>
+    <text x="15" y="198" class="text" fill="#ffffff">[1:a] aformat=sample_rates=48000:channel_layouts=stereo[a1]</text>
+
+    <text x="10" y="220" class="text-small">处理说明：</text>
+    <text x="10" y="233" class="text-small">• aformat: 统一采样率为 48kHz，统一为立体声</text>
+
+    <!-- 步骤 3: 拼接 -->
+    <text x="10" y="255" class="text-title" fill="#16a34a">步骤 3: 拼接 (concat filter)</text>
+
+    <rect x="10" y="265" width="780" height="40" fill="#1e293b" />
+    <text x="15" y="280" class="text" fill="#ffffff">[v0][a0][v1][a1] concat=n=2:v=1:a=1[v][a]</text>
+
+    <text x="10" y="310" class="text-small">拼接机制：</text>
+    <text x="10" y="323" class="text-small">• concat filter 重新计算所有帧的 PTS (Presentation Time Stamp)</text>
+    <text x="10" y="336" class="text-small">• 生成连续的时间轴，消除时间漂移</text>
+  </g>
+
+  <!-- 箭头向下 -->
+  <path d="M 700 800 L 700 840" class="arrow-success" />
+
+  <!-- 输出结果 -->
+  <g transform="translate(300, 840)">
+    <rect x="0" y="0" width="800" height="200" rx="5" class="box-success" />
+    <text x="10" y="20" class="text-title" font-size="16">✅ 最终输出 (标准化后)</text>
+
+    <!-- 左侧：输出参数 -->
+    <g transform="translate(10, 35)">
+      <text x="0" y="0" class="text-title">视频参数:</text>
+      <text x="0" y="20" class="text">• 帧率: 30 fps (统一)</text>
+      <text x="0" y="35" class="text">• 分辨率: 1920x1080 (统一)</text>
+      <text x="0" y="50" class="text">• 编码: H.264 yuv420p (统一)</text>
+      <text x="0" y="65" class="text">• 时长: 50.36 秒 (精确)</text>
+    </g>
+
+    <line x1="250" y1="40" x2="250" y2="180" stroke="#334155" stroke-width="1" />
+
+    <!-- 中间：音频参数 -->
+    <g transform="translate(270, 35)">
+      <text x="0" y="0" class="text-title">音频参数:</text>
+      <text x="0" y="20" class="text">• 编码: AAC (统一)</text>
+      <text x="0" y="35" class="text">• 采样率: 48000 Hz (统一)</text>
+      <text x="0" y="50" class="text">• 声道: 立体声 (统一)</text>
+      <text x="0" y="65" class="text">• 码率: 192 kbps</text>
+    </g>
+
+    <line x1="500" y1="40" x2="500" y2="180" stroke="#334155" stroke-width="1" />
+
+    <!-- 右侧：效果对比 -->
+    <g transform="translate(520, 35)">
+      <text x="0" y="0" class="text-title">效果对比:</text>
+      <text x="0" y="20" class="text">❌ 旧方案: 52s, 慢速, 停顿</text>
+      <text x="0" y="35" class="text">✅ 新方案: 50.36s, 正常, 流畅</text>
+
+      <text x="0" y="60" class="text-title">关键改进:</text>
+      <text x="0" y="75" class="text-small">1. 使用 filter_complex 而不是 concat demuxer</text>
+      <text x="0" y="90" class="text-small">2. 统一帧率为 30fps (避免慢速播放)</text>
+      <text x="0" y="105" class="text-small">3. 统一分辨率为 1920x1080 (避免缩放问题)</text>
+      <text x="0" y="120" class="text-small">4. 统一音频参数 (避免音画不同步)</text>
+      <text x="0" y="135" class="text-small">5. 重新编码视频 (处理时间 +10-15s，但结果正确)</text>
+    </g>
+
+    <!-- 底部说明 -->
+    <text x="10" y="180" class="text-small" fill="#64748b">注意：重新编码会增加处理时间，但这是唯一能保证异构视频正确拼接的方法</text>
+  </g>
+
+  <!-- 侧边栏：权衡说明 -->
+  <g transform="translate(50, 840)">
+    <rect x="0" y="0" width="220" height="200" rx="5" class="box-warning" />
+    <text x="10" y="20" class="text-title">权衡分析</text>
+
+    <text x="10" y="40" class="text-title">速度 vs 质量:</text>
+    <text x="10" y="55" class="text">• stream copy: 快 10x</text>
+    <text x="10" y="70" class="text">  但结果错误 ❌</text>
+    <text x="10" y="85" class="text">• filter complex: 慢 10x</text>
+    <text x="10" y="100" class="text">  但结果正确 ✅</text>
+
+    <text x="10" y="125" class="text-title">结论:</text>
+    <text x="10" y="140" class="text">对于异构视频拼接:</text>
+    <text x="10" y="155" class="text">正确性 > 速度</text>
+    <text x="10" y="170" class="text">用户可以等 10 秒</text>
+    <text x="10" y="185" class="text">但不能接受慢速播放</text>
+  </g>
+
+  <g transform="translate(1130, 840)">
+    <rect x="0" y="0" width="220" height="200" rx="5" class="box" />
+    <text x="10" y="20" class="text-title">FFmpeg 参数说明</text>
+
+    <text x="10" y="40" class="text-title">-preset medium</text>
+    <text x="10" y="55" class="text-small">平衡速度和质量</text>
+
+    <text x="10" y="75" class="text-title">-crf 23</text>
+    <text x="10" y="90" class="text-small">高质量编码</text>
+
+    <text x="10" y="110" class="text-title">-profile:v high</text>
+    <text x="10" y="125" class="text-small">H.264 高级配置</text>
+
+    <text x="10" y="145" class="text-title">-movflags +faststart</text>
+    <text x="10" y="160" class="text-small">Web 优化</text>
+
+    <text x="10" y="180" class="text-small">如果需要更快速度:</text>
+    <text x="10" y="193" class="text-small">改为 -preset superfast</text>
+  </g>
+</svg>

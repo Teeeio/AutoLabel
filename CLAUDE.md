@@ -10,14 +10,13 @@ This is a **Random Dance Generator** (快速随舞生成器) - a desktop applica
 
 ### Running the Application
 ```bash
-# Start both webui and desktop in development mode
+# Start all services (webui, desktop, server) in development mode
 npm run dev
 
-# Start only the web UI (React + Vite)
-npm run dev:webui
-
-# Start only the desktop app (Electron)
-npm run dev:desktop
+# Start individual services
+npm run dev:webui    # React dev server on port 5173
+npm run dev:desktop  # Electron app (loads from dev server or built files)
+npm run dev:server   # Express API on port 8787
 ```
 
 The web UI runs on `http://localhost:5173`. The desktop app expects this URL to be available via the `VITE_DEV_SERVER_URL` environment variable.
@@ -27,10 +26,10 @@ The web UI runs on `http://localhost:5173`. The desktop app expects this URL to 
 # Build both applications
 npm run build
 
-# Build only the web UI
+# Build only the web UI (outputs to apps/webui/dist/)
 npm run build:webui
 
-# Build only the desktop app (creates Windows installer)
+# Build only the desktop app (creates Windows NSIS installer)
 npm run build:desktop
 ```
 
@@ -44,6 +43,7 @@ The project uses NPM workspaces with three packages:
 
 - **`apps/webui/`** - React 18.2.0 + Vite web application
 - **`apps/desktop/`** - Electron 30.0.0 desktop wrapper
+- **`apps/server/`** - Express.js community API server
 - **`packages/core/`** - Shared utilities (currently minimal)
 
 ### Key Architectural Pattern
@@ -52,6 +52,7 @@ This is a **hybrid web-desktop application** where:
 - The web UI provides the core user interface and workflow
 - Electron wraps the web UI and provides native capabilities
 - Communication happens via Electron IPC (Inter-Process Communication)
+- Development mode loads from `http://localhost:5173`, production mode loads built files from `dist/`
 
 ### Main Process Architecture (apps/desktop/src/main/)
 
@@ -61,18 +62,30 @@ The Electron main process is split into focused modules:
 - **`auth.cjs`** - Bilibili QR code authentication and cookie management
 - **`preview.cjs`** - Bilibili video resolution, DASH manifest parsing, segment fetching
 - **`generator.cjs`** - Dance generation pipeline (download, clip, stitch, export)
+- **`local-video.cjs`** - Local video file management and metadata extraction
 - **`preload.cjs`** - Context bridge for renderer-to-main IPC communication
 - **`bilibili-preload.cjs`** - Preload script for Bilibili webview integration
 - **`bilibili-page-preload.cjs`** - Page injection scripts for Bilibili player hijacking
 
 ### Renderer Process (apps/webui/src/)
 
-The React application is currently a single-file application (`App.jsx`) containing:
-- Bilibili video search UI
-- Timeline-based video segment selection with range scrubbing
-- Card-based workflow for organizing dance segments
-- Tag management (search tags + clip tags)
-- Embedded Bilibili player with custom controls
+The React application is split into focused modules:
+- **`pages/`** - Main application pages (BuilderPage, CommunityPage, ManagePage)
+- **`layout/`** - Layout components
+- **`components/`** - Reusable UI components
+- **`hooks/`** - Custom React hooks for domain-specific logic
+- **`context/`** - React context for state management
+- **`routes/`** - Route configuration
+- **`utils/`** - Utility functions
+- **`App.jsx`** - Orchestrator that wires context + hooks + routes
+
+**Key Custom Hooks:**
+- **`usePreviewPlayerState`** - Centralized player state management
+- **`useTimelineScrub`** - Timeline interaction and range scrubbing
+- **`useCardFormActions`** - Card creation and tag management
+- **`useCommunityManager`** - Community API integration
+- **`useLocalVideoLibrary`** - Local video file management
+- **`useBiliSearchOverlay`** - Bilibili search functionality
 
 ## IPC Communication Protocol
 
@@ -84,9 +97,13 @@ Key IPC handlers exposed in `index.cjs`:
 - **`preview:resolve`** - Resolve Bilibili video URL to get aid/cid
 - **`preview:info`** - Fetch video metadata (title, duration, cid list)
 - **`preview:prefetch`** - Prefetch video chunks for smoother playback
+- **`local-video:select-folder`** - Open folder picker for local videos
+- **`local-video:list`** - List video files in selected folder
+- **`local-video:metadata`** - Extract video metadata (duration, dimensions)
 - **`auth:login/status`** - Check Bilibili authentication status
 - **`auth:login/qr`** - Generate and return QR code for login
 - **`auth:login/check`** - Check if QR code has been scanned
+- **`auth:cookie`** - Get stored Bilibili cookies
 
 ### Custom Protocol
 
@@ -120,45 +137,77 @@ The app uses Electron `<webview>` tags to embed Bilibili content:
 5. **Tag** - Add tags for community organization
 6. **Generate** - Process selected cards through generation pipeline
 
+## Code Style & Conventions
+
+### File Naming
+- React components: `PascalCase.jsx` (e.g., `App.jsx`, `CardPreview.jsx`)
+- Utilities/API modules: `camelCase.js` (e.g., `communityApi.js`)
+- Electron main/preload: `.cjs` extension to avoid ESM interop issues
+
+### Module Systems
+- **ES Modules** (`import/export`) for WebUI and Server
+- **CommonJS** (`require/module.exports`) for Electron main process and Core package
+
+### Naming Conventions
+- Functions/variables: `camelCase` (e.g., `createCard`, `getVideoInfo`)
+- Constants: `UPPER_SNAKE_CASE` for top-level config
+- React components: `PascalCase`
+- Event handlers: `handle` prefix (e.g., `handleAddCard`)
+- IPC handlers: Domain pattern with colon (e.g., `preview:info`, `auth:login`)
+
+### Error Handling
+- Use try/catch for async operations, return error object with `message` property
+- Server responses: `{ ok: boolean, message?: string, ...data }` format
+- Frontend errors: Store in state, display to user
+- Silent failures acceptable for non-critical operations (e.g., prefetch errors)
+
+### React Patterns
+- Functional components with hooks only (no class components)
+- Use `useCallback` for functions passed to child components
+- Use `useMemo` for expensive computations
+- Prefer controlled components with state for forms
+- Clean up effects properly (remove event listeners, clearTimeout)
+
+## Security & Configuration
+
+- Only embed official Bilibili player URLs
+- Set Referer/Origin headers for Bilibili media requests to avoid blocking
+- Cookies stored locally in `userData/rdg-cookie.json`, never transmitted to external servers
+- Media downloads/ffmpeg processing must run locally on user device
+- Session tokens: 7-day TTL default, stored in `sessions.json`
+- Passwords: Hashed with `crypto.scryptSync` with random salt
+
+## Environment Variables
+
+- `VITE_DEV_SERVER_URL`: Set by `dev:desktop` script to load dev server
+- `COMMUNITY_PORT`: Server port (default: 8787)
+- `COMMUNITY_SESSION_TTL_MS`: Session TTL in ms (default: 7 days)
+- `RDG_BILI_COOKIE`: Optional env var to pre-populate Bilibili cookie
+- `VITE_COMMUNITY_API_URL`: Override community API URL (default: http://localhost:8787)
+
 ## Technical Details
 
-### File Format Conventions
-
-- **`.cjs`** - CommonJS modules (Electron main process, Node.js)
-- **`.jsx`** - React components with JSX (Renderer process)
-- ES modules used in webui, CommonJS in desktop
-
-### State Management
-
-- No external state management library
-- Uses React hooks (useState, useEffect, useRef, useMemo, useCallback)
-- IPC bridges render state to main process actions
-
-### Build Configuration
-
-- **Vite** serves web UI on port 5173
-- **Electron Builder** packages desktop app with NSIS installer
-- Desktop app expects web UI to be built to `dist/` directory
-
-### Environment Detection
-
-Development mode is determined by `process.env.VITE_DEV_SERVER_URL` in the desktop app, which affects:
-- Whether to load from dev server or built files
-- Window positioning and debugging features
-
-## Key Constants and Patterns
-
-### Bilibili User Agent
-```javascript
-"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-```
+### Window Configuration
+- Default size: 1200x800
+- Autoplay policy override enabled
+- Custom protocol `rdg://` registered for local resources
 
 ### Time Range Format
 - Ranges are in seconds (floating point)
 - Minimum range duration: 0.05 seconds (50ms)
 - Auto-merge ranges within 0.05 seconds
 
-### Window Configuration
-- Default size: 1200x800
-- Autoplay policy override enabled
-- Custom protocol `rdg://` registered for local resources
+### Bilibili User Agent
+```
+"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+```
+
+## Community API
+
+The Express.js server provides RESTful endpoints:
+- **Authentication**: `/api/auth/login` (POST)
+- **Cards**: `/api/cards` (GET, POST, PATCH, DELETE)
+- **Tags**: `/api/tags` (GET, POST, DELETE)
+- **User**: `/api/user` (GET)
+
+Query params with `URLSearchParams` for GET requests. Auth via Bearer token in `Authorization` header.

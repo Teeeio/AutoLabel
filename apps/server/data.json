@@ -1,18 +1,11 @@
 {
   "users": [
     {
-      "id": "u-1768665574378",
+      "id": "u-1769186210362",
       "username": "1234",
-      "createdAt": 1768665574378,
-      "salt": "5a9ec4e2eea56ced46a081a0018f485d",
-      "passwordHash": "8edc9c0e53992dca4374986517d5058600cd0fb24071619cb5ee70a155b810b491f20343ac0f9242e9e810186a42940bb3c9c1de5ab199f1612ab726ca878384"
-    },
-    {
-      "id": "u-1768634924436",
-      "username": "123",
-      "createdAt": 1768634924436,
-      "salt": "64775c5ce459726d4f4d46f35c6415e3",
-      "passwordHash": "8ce0e167611b31784cb6311d7c57a2d5e8c2edf40438204c8c40274850fca045298201b7293449f43a39d20f27c271b7a30307f2584544892dcb7bf5b5c0776e"
+      "createdAt": 1769186210362,
+      "salt": "0f1d1cf25e67398789b8de674e928f26",
+      "passwordHash": "10bef90846a09efef3558138c08a17e158c70e799a084d1b78402671feb041a069af2a177dfd667c0b55885418748b6c5c1723e592b3f989473a9befb6ac4ea3"
     },
     {
       "id": "u-1",
@@ -24,66 +17,6 @@
   ],
   "tags": [
     {
-      "id": "t-1768668014258",
-      "name": "生如百戏难！LOVELIVE！青鸟",
-      "aliases": [],
-      "description": "",
-      "creatorId": "u-1768665574378",
-      "visibility": "private",
-      "createdAt": 1768668014258,
-      "updatedAt": 1768668014258,
-      "favoriteCount": 0,
-      "useCount": 0
-    },
-    {
-      "id": "t-1768668014255",
-      "name": "人生不易部",
-      "aliases": [],
-      "description": "",
-      "creatorId": "u-1768665574378",
-      "visibility": "private",
-      "createdAt": 1768668014255,
-      "updatedAt": 1768668014255,
-      "favoriteCount": 0,
-      "useCount": 0
-    },
-    {
-      "id": "t-1768668014252",
-      "name": "Love Live! series",
-      "aliases": [],
-      "description": "",
-      "creatorId": "u-1768665574378",
-      "visibility": "private",
-      "createdAt": 1768668014252,
-      "updatedAt": 1768668014252,
-      "favoriteCount": 0,
-      "useCount": 0
-    },
-    {
-      "id": "t-1768668014250",
-      "name": "IKIZULIVE!",
-      "aliases": [],
-      "description": "",
-      "creatorId": "u-1768665574378",
-      "visibility": "private",
-      "createdAt": 1768668014250,
-      "updatedAt": 1768668014250,
-      "favoriteCount": 0,
-      "useCount": 0
-    },
-    {
-      "id": "t-1768668014241",
-      "name": "LoveLive!",
-      "aliases": [],
-      "description": "",
-      "creatorId": "u-1768665574378",
-      "visibility": "private",
-      "createdAt": 1768668014241,
-      "updatedAt": 1768668014241,
-      "favoriteCount": 0,
-      "useCount": 0
-    },
-    {
       "id": "t-1",
       "name": "random-dance",
       "aliases": [
@@ -94,8 +27,8 @@
       "visibility": "public",
       "createdAt": 1700000000000,
       "updatedAt": 1700000000000,
-      "favoriteCount": 3,
-      "useCount": 42
+      "favoriteCount": 0,
+      "useCount": 0
     },
     {
       "id": "t-2",
@@ -108,143 +41,290 @@
       "visibility": "public",
       "createdAt": 1700000000000,
       "updatedAt": 1700000000000,
-      "favoriteCount": 2,
-      "useCount": 30
+      "favoriteCount": 0,
+      "useCount": 0
     }
   ],
   "favorites": {
-    "u-1": [
-      "t-1",
-      "t-2"
-    ]
+    "u-1": []
   },
   "cards": [
     {
-      "id": "c-1768816803388",
-      "userId": "u-1768665574378",
-      "title": "【Nowadays #7】μ's Nowadays",
-      "bvid": "BV1TerzBZE7E",
-      "start": 61.39797181321641,
-      "end": 95.46410589082583,
-      "tags": [
-        "LoveLive!",
-        "Love Live! series",
-        "μ's",
-        "Nowadays"
-      ],
-      "clipTags": [
-        "μ's"
-      ],
-      "bpm": "",
-      "notes": "",
-      "visibility": "private",
-      "createdAt": 1768816803388,
-      "updatedAt": 1768816803388
-    },
-    {
-      "id": "c-1768668014225",
-      "userId": "u-1768665574378",
-      "title": "【人生不易部】日常#5「剪辑挑战 加油！」（生如百戏难！LOVELIVE! 青鸟）",
-      "bvid": "BV1jAkTBXEqd",
+      "id": "CVf1cn8cl9",
+      "userId": "u-1769186210362",
+      "title": "oym",
+      "source": "bilibili",
+      "bvid": "BV1mq4xzTEjd",
+      "aid": 0,
+      "cid": 0,
+      "localPath": "",
       "start": 0,
-      "end": 140.82370927434025,
+      "end": 88.67553862946083,
       "tags": [
+        "音乐现场",
+        "偶像",
+        "演唱会",
+        "声优",
         "LoveLive!",
-        "IKIZULIVE!",
-        "Love Live! series",
-        "人生不易部",
-        "生如百戏难！LOVELIVE！青鸟"
+        "日语现场",
+        "莲之空"
       ],
-      "clipTags": [
-        "μs"
-      ],
-      "bpm": "",
-      "notes": "testtest",
-      "visibility": "public",
-      "createdAt": 1768668014225,
-      "updatedAt": 1768730842668
-    },
-    {
-      "id": "c-1768667705791",
-      "userId": "u-1768665574378",
-      "title": "【人生不易部】日常#5「剪辑挑战 加油！」（生如百戏难！LOVELIVE! 青鸟）",
-      "bvid": "BV1jAkTBXEqd",
-      "start": 0,
-      "end": 214,
-      "tags": [],
       "clipTags": [
         "Hasunosora"
       ],
       "bpm": "",
       "notes": "",
       "visibility": "public",
-      "createdAt": 1768667705791,
-      "updatedAt": 1768730842671
+      "localDuration": 0,
+      "localFileSize": 0,
+      "localWidth": 0,
+      "localHeight": 0,
+      "localFps": 0,
+      "createdAt": 1769334710865,
+      "updatedAt": 1769334710865
     },
     {
-      "id": "c-1768667091432",
-      "userId": "u-1768665574378",
-      "title": "【UP！大侦探】 传国玉玺花落谁家？",
-      "bvid": "BV1inrnB9Egr",
-      "start": 105.54862797252154,
-      "end": 398,
+      "id": "CVyy5oFFN8",
+      "userId": "u-1769186210362",
+      "title": "Guilty Eyes Fever",
+      "source": "bilibili",
+      "bvid": "BV1uK411D7iw",
+      "aid": 0,
+      "cid": 0,
+      "localPath": "",
+      "start": 49.36675573535824,
+      "end": 102.51726680399352,
       "tags": [
-        "UP大侦探",
-        "虚拟主播",
-        "VTUBER"
+        "发现《Guilty Eyes Fever (Off Vocal)》",
+        "轻舞蹈创作激励计划第八期",
+        "宅舞",
+        "LoveLive!",
+        "Aqours",
+        "Cosplay"
       ],
       "clipTags": [
-        "μs"
+        "Aqours"
       ],
       "bpm": "",
       "notes": "",
       "visibility": "public",
-      "createdAt": 1768667091432,
-      "updatedAt": 1768730842673
+      "localDuration": 0,
+      "localFileSize": 0,
+      "localWidth": 0,
+      "localHeight": 0,
+      "localFps": 0,
+      "createdAt": 1769334093507,
+      "updatedAt": 1769334093507
     },
     {
-      "id": "c-1768659017893",
-      "userId": "u-1768634924436",
-      "title": "【人生不易部】日常#5「剪辑挑战 加油！」（生如百戏难！LOVELIVE! 青鸟）",
-      "bvid": "BV1jAkTBXEqd",
-      "start": 0,
-      "end": 214,
+      "id": "CVyRFqWIl7",
+      "userId": "u-1769186210362",
+      "title": "ed3",
+      "source": "bilibili",
+      "bvid": "BV1FfioY4EiK",
+      "aid": 0,
+      "cid": 0,
+      "localPath": "",
+      "start": 50.80352433783444,
+      "end": 101.62578435310508,
       "tags": [
+        "发现《DAISUKI FULL POWER》",
+        "主题曲",
+        "舞蹈",
+        "LOVE LIVE!",
+        "声优",
+        "ED",
         "LoveLive!",
-        "IKIZULIVE!",
-        "Love Live! series",
-        "人生不易部",
-        "生如百戏难！LOVELIVE！青鸟"
+        "日语现场",
+        "舞蹈练习",
+        "Liella!",
+        "LoveLive! Superstar!!"
       ],
       "clipTags": [
-        "μs"
+        "Liella"
       ],
       "bpm": "",
       "notes": "",
-      "visibility": "private",
-      "createdAt": 1768659017893,
-      "updatedAt": 1768659017893
+      "visibility": "public",
+      "localDuration": 0,
+      "localFileSize": 0,
+      "localWidth": 0,
+      "localHeight": 0,
+      "localFps": 0,
+      "createdAt": 1769333593103,
+      "updatedAt": 1769333593103
     },
     {
-      "id": "c-1768644121668",
-      "userId": "u-1768634924436",
-      "title": "【人生不易部】日常#5「剪辑挑战 加油！」（生如百戏难！LOVELIVE! 青鸟）",
-      "bvid": "BV1jAkTBXEqd",
+      "id": "CVaB4y9nZ6",
+      "userId": "u-1769186210362",
+      "title": "新世界",
+      "source": "bilibili",
+      "bvid": "BV1pG411Z7TR",
+      "aid": 0,
+      "cid": 0,
+      "localPath": "",
       "start": 0,
-      "end": 214,
+      "end": 104.25631907834935,
       "tags": [
-        "LoveLive!",
-        "IKIZULIVE!",
-        "Love Live! series",
-        "人生不易部",
-        "生如百戏难！LOVELIVE！青鸟"
+        "动漫歌曲",
+        "动漫音乐",
+        "舞蹈",
+        "声优",
+        "LOVE LIVE!",
+        "日语现场",
+        "舞蹈练习",
+        "LoveLive!Superstar!!",
+        "Liella!"
       ],
-      "clipTags": [],
+      "clipTags": [
+        "Liella"
+      ],
+      "bpm": "",
+      "notes": "",
+      "visibility": "public",
+      "localDuration": 0,
+      "localFileSize": 0,
+      "localWidth": 0,
+      "localHeight": 0,
+      "localFps": 0,
+      "createdAt": 1769333414907,
+      "updatedAt": 1769333414907
+    },
+    {
+      "id": "CVwt7tBKn5",
+      "userId": "u-1769186210362",
+      "title": "shake it up",
+      "source": "bilibili",
+      "bvid": "BV12J4m1x7t1",
+      "aid": 0,
+      "cid": 0,
+      "localPath": "",
+      "start": 0,
+      "end": 97.57482768601025,
+      "tags": [
+        "LOVE LIVE!",
+        "CatChu!",
+        "KALEIDOSCORE",
+        "5yncri5e!",
+        "LOVELIVESUPERSTAR",
+        "Liella!"
+      ],
+      "clipTags": [
+        "Liella"
+      ],
+      "bpm": "",
+      "notes": "",
+      "visibility": "public",
+      "localDuration": 0,
+      "localFileSize": 0,
+      "localWidth": 0,
+      "localHeight": 0,
+      "localFps": 0,
+      "createdAt": 1769333281500,
+      "updatedAt": 1769333281500
+    },
+    {
+      "id": "CVMVl4z5m4",
+      "userId": "u-1769186210362",
+      "title": "GOW",
+      "source": "bilibili",
+      "bvid": "BV1Jiige1Epz",
+      "aid": 0,
+      "cid": 0,
+      "localPath": "",
+      "start": 0,
+      "end": 83.72247532270316,
+      "tags": [
+        "声优",
+        "偶像",
+        "中日字幕",
+        "4K",
+        "LoveLive!",
+        "Go Our Way！",
+        "虹团最短歌曲",
+        "6th",
+        "虹ヶ咲学園スクールアイドル同好会",
+        "HiRes"
+      ],
+      "clipTags": [
+        "Nijigasaki"
+      ],
+      "bpm": "",
+      "notes": "",
+      "visibility": "public",
+      "localDuration": 0,
+      "localFileSize": 0,
+      "localWidth": 0,
+      "localHeight": 0,
+      "localFps": 0,
+      "createdAt": 1769332706955,
+      "updatedAt": 1769332706955
+    },
+    {
+      "id": "CV12OA0g93",
+      "userId": "u-1769186210362",
+      "title": "OP2",
+      "source": "bilibili",
+      "bvid": "BV1TDs9zLE1R",
+      "aid": 0,
+      "cid": 0,
+      "localPath": "",
+      "start": 0,
+      "end": 89.233,
+      "tags": [
+        "发现《未来の僕らは知ってるよ》",
+        "突破次元壁大作战",
+        "宅舞",
+        "高海千歌",
+        "黑泽露比",
+        "渡边曜",
+        "樱内梨子",
+        "黑泽黛雅",
+        "津岛善子",
+        "LoveLive!",
+        "aqours"
+      ],
+      "clipTags": [
+        "Aqours"
+      ],
       "bpm": "",
       "notes": "",
       "visibility": "private",
-      "createdAt": 1768644121668,
-      "updatedAt": 1768644121668
+      "localDuration": 0,
+      "localFileSize": 0,
+      "localWidth": 0,
+      "localHeight": 0,
+      "localFps": 0,
+      "createdAt": 1769332524272,
+      "updatedAt": 1769332524272
+    },
+    {
+      "id": "CVRTWKdAb2",
+      "userId": "u-1769186210362",
+      "title": "DC",
+      "source": "bilibili",
+      "bvid": "BV1DWNJzKEwd",
+      "aid": 0,
+      "cid": 0,
+      "localPath": "",
+      "start": 36.61025320239913,
+      "end": 110.03641685769702,
+      "tags": [],
+      "clipTags": [
+        "Aqours"
+      ],
+      "bpm": "",
+      "notes": "",
+      "visibility": "public",
+      "localDuration": 0,
+      "localFileSize": 0,
+      "localWidth": 0,
+      "localHeight": 0,
+      "localFps": 0,
+      "createdAt": 1769332416307,
+      "updatedAt": 1769332416307
     }
-  ]
+  ],
+  "cardIdCounter": 10,
+  "collections": []
 }

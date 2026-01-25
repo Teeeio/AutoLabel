@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(findstr:*)",
+      "Bash(npm run build:webui:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

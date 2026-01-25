@@ -1,5 +1,16 @@
 const { ipcRenderer } = require("electron");
 
+// 创建一个日志函数，通过 IPC 发送到主进程
+const bilibiliLog = (message, ...args) => {
+  try {
+    ipcRenderer.sendToHost('bilibili:log', { message, args });
+  } catch (e) {
+    // 如果 IPC 还没准备好，就忽略
+  }
+};
+
+bilibiliLog('[Bilibili Preload] Script loaded successfully!');
+
 const KEEP_SELECTOR =
   "#bilibili-player > div > div > div.bpx-player-primary-area > div.bpx-player-video-area";
 const ENABLE_ISOLATION = true;
@@ -211,6 +222,7 @@ function ensureVideo() {
 }
 
 function initClipRange() {
+  bilibiliLog('[Bilibili Z/X] initClipRange called, clipApi:', !!clipApi, 'videoEl:', !!videoEl);
   if (clipApi || !videoEl) return;
   const $ = (sel, root = document) => root.querySelector(sel);
   const progressWrap =
@@ -786,6 +798,13 @@ function initClipRange() {
 
   function onPointerDown(kind, e) {
     if (e.button !== 0) return;
+
+    // 保存最近拖拽的手柄，供 Z/X 快捷键使用
+    if (frameAdjustState) {
+      frameAdjustState.lastDragHandle = kind;
+      bilibiliLog('[Bilibili Z/X] onPointerDown: saved lastDragHandle =', kind);
+    }
+
     dragging = kind;
     dragPid = e.pointerId;
     dragTarget = e.currentTarget;
@@ -932,7 +951,7 @@ function initClipRange() {
     const r = getRange();
     if (!r) return;
     const t = videoEl.currentTime;
-    const EPS = 0.03;
+    const EPS = 0.05; // 减小容差到50ms，更精确的循环控制
     const endIsVideoEnd = Math.abs(r.e - r.d) < 0.05;
     if (!videoEl.paused && t >= r.e - EPS) {
       internalLock = true;
@@ -1071,6 +1090,361 @@ function initClipRange() {
     true
   );
 
+  // Z/X 帧级别快捷键调整
+  let frameAdjustState = {
+    key: null,
+    timeout: null,
+    raf: null,
+    long: false,
+    lastDragHandle: null,
+    frameDuration: null,
+    direction: null,
+    lastTipUpdate: 0
+  };
+
+  bilibiliLog('[Bilibili Z/X] Frame adjust state initialized');
+  bilibiliLog('[Bilibili Z/X] Setting up ZX keyboard event listeners');
+
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      const lowerKey = e.key?.toLowerCase?.();
+
+      // 调试：记录所有按键
+      if (["z", "x"].includes(lowerKey)) {
+        bilibiliLog('[Bilibili Z/X] Z/X key detected:', lowerKey, 'target:', e.target?.tagName);
+      }
+
+      // Z/X 帧级别调整
+      if (lowerKey === "z" || lowerKey === "x") {
+        const target = e.target;
+        if (target && (
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable
+        )) {
+          return;
+        }
+
+        // 检查是否有最近拖拽过的手柄
+        const lastDragHandle = frameAdjustState.lastDragHandle;
+        if (!lastDragHandle || (lastDragHandle !== 'start' && lastDragHandle !== 'end')) {
+          bilibiliLog('[Bilibili Z/X] No valid lastDragHandle:', lastDragHandle);
+          return;
+        }
+
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
+
+        if (frameAdjustState.key && frameAdjustState.key !== lowerKey) {
+          return;
+        }
+        if (frameAdjustState.key === lowerKey) {
+          return;
+        }
+
+        // 获取视频帧率（默认30fps）
+        const fps = 30;
+        const frameDuration = 1 / fps;
+
+        frameAdjustState.key = lowerKey;
+        frameAdjustState.long = false;
+        frameAdjustState.frameDuration = frameDuration;
+        frameAdjustState.direction = lowerKey === "x" ? 1 : -1;
+
+        // 通知主应用开始高亮时间戳
+        try {
+          ipcRenderer.sendToHost('bilibili:timeHighlight', { highlight: true });
+        } catch (e) {
+          // Ignore if IPC not ready
+        }
+
+        bilibiliLog('[Bilibili Z/X] Key pressed:', lowerKey, 'direction:', frameAdjustState.direction, 'handle:', lastDragHandle);
+
+        // 短按：立即移动一帧
+        const r = getRange();
+        if (!r) return;
+
+        const delta = frameDuration * frameAdjustState.direction;
+        if (lastDragHandle === 'start') {
+          const next = clamp(r.s + delta, 0, r.e - getMinSpan(r.d));
+          setRange(next, r.e);
+          // 跳转播放头到新的起点
+          if (videoEl) {
+            videoEl.currentTime = next;
+          }
+          showFrameAdjustTip(next, 'start');
+          bilibiliLog('[Bilibili Z/X] Moved start from', r.s, 'to', next, 'and seeked to', next);
+        } else {
+          const next = clamp(r.e + delta, r.s + getMinSpan(r.d), r.d);
+          setRange(r.s, next);
+          showFrameAdjustTip(next, 'end');
+          bilibiliLog('[Bilibili Z/X] Moved end from', r.e, 'to', next);
+        }
+
+        // 长按检测
+        frameAdjustState.timeout = setTimeout(() => {
+          if (frameAdjustState.key !== lowerKey) return;
+          frameAdjustState.long = true;
+          bilibiliLog('[Bilibili Z/X] Long press detected, starting acceleration');
+          startFrameAdjustLoop();
+        }, 220);
+
+        return;
+      }
+    },
+    true
+  );
+
+  window.addEventListener(
+    "keyup",
+    (e) => {
+      const lowerKey = e.key?.toLowerCase?.();
+
+      if (lowerKey === "z" || lowerKey === "x") {
+        const target = e.target;
+        if (target && (
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable
+        )) {
+          return;
+        }
+
+        if (frameAdjustState.key && frameAdjustState.key !== lowerKey) {
+          return;
+        }
+
+        bilibiliLog('[Bilibili Z/X] Key released:', lowerKey);
+
+        // 通知主应用停止高亮时间戳
+        try {
+          ipcRenderer.sendToHost('bilibili:timeHighlight', { highlight: false });
+        } catch (e) {
+          // Ignore if IPC not ready
+        }
+
+        // 清理
+        if (frameAdjustState.raf) {
+          cancelAnimationFrame(frameAdjustState.raf);
+        }
+        if (frameAdjustState.timeout) {
+          clearTimeout(frameAdjustState.timeout);
+        }
+
+        frameAdjustState.key = null;
+        frameAdjustState.long = false;
+        hideTip();
+      }
+    },
+    true
+  );
+
+  // Z/X 长按加速循环
+  function startFrameAdjustLoop() {
+    const framesPerSecond = 60;
+    const baseFramesPerStep = 1;
+    const maxFramesPerStep = 20;
+
+    let currentFramesPerStep = baseFramesPerStep;
+    let lastUpdate = performance.now();
+    let accumulator = 0;
+
+    const loop = (now) => {
+      if (!frameAdjustState.long ||
+          (frameAdjustState.key !== "z" && frameAdjustState.key !== "x")) {
+        return;
+      }
+
+      const dt = now - lastUpdate;
+      lastUpdate = now;
+      accumulator += dt;
+
+      const r = getRange();
+      if (!r) return;
+
+      const direction = frameAdjustState.direction || 1;
+      const stepSize = frameAdjustState.frameDuration * currentFramesPerStep;
+
+      if (accumulator >= 1000 / framesPerSecond) {
+        accumulator = 0;
+
+        // 加速
+        if (currentFramesPerStep < maxFramesPerStep) {
+          currentFramesPerStep += 1;
+        }
+
+        if (frameAdjustState.lastDragHandle === 'start') {
+          const next = clamp(r.s + stepSize * direction, 0, r.e - getMinSpan(r.d));
+          setRange(next, r.e);
+          // 跳转播放头到新的起点
+          if (videoEl) {
+            videoEl.currentTime = next;
+          }
+
+          // 节流更新缩略图
+          if (now - frameAdjustState.lastTipUpdate > 100) {
+            showFrameAdjustTip(next, 'start');
+            frameAdjustState.lastTipUpdate = now;
+          }
+        } else {
+          const next = clamp(r.e + stepSize * direction, r.s + getMinSpan(r.d), r.d);
+          setRange(r.s, next);
+
+          if (now - frameAdjustState.lastTipUpdate > 100) {
+            showFrameAdjustTip(next, 'end');
+            frameAdjustState.lastTipUpdate = now;
+          }
+        }
+      }
+
+      frameAdjustState.raf = requestAnimationFrame(loop);
+    };
+
+    frameAdjustState.raf = requestAnimationFrame(loop);
+  }
+
+  // 显示 Z/X 调整时的缩略图
+  let frameAdjustTipTimer = null;
+  let lastCaptureTime = -1;
+
+  function showFrameAdjustTip(timeValue, handleType) {
+    const rect = getBaseRect();
+    const baseWidth = getBaseWidth();
+    if (!baseWidth) return;
+    const r = getRange();
+    if (!r) return;
+
+    // 清除之前的定时器
+    if (frameAdjustTipTimer) {
+      clearTimeout(frameAdjustTipTimer);
+    }
+
+    const xBase = clamp((timeValue / r.d) * baseWidth, 0, baseWidth);
+    const overlayRect = zoomOverlay?.getBoundingClientRect?.();
+    const anchorScreenX = baseXToScreenXScaled(xBase);
+    const overlayLeft = overlayRect?.left ?? 0;
+
+    tooltip.style.left = `${anchorScreenX - overlayLeft}px`;
+    tooltip.style.display = "block";
+    tipTime.textContent = fmt(timeValue);
+
+    // 使用实际画面抓取（从 video 元素获取精确的帧）
+    if (videoEl && videoEl.readyState >= 2) {
+      // 节流：只有时间变化超过 0.1 秒时才重新抓取
+      if (Math.abs(timeValue - lastCaptureTime) > 0.1) {
+        lastCaptureTime = timeValue;
+        captureVideoFrame(timeValue, handleType);
+      }
+    } else {
+      // 如果 video 还没准备好，回退到 B 站缩略图
+      const previewX = baseXToScreenXScaled(xBase);
+      pokeBpxPreview(previewX, rect.top + rect.height / 2);
+      const prev = readBpxPreviewImage();
+      if (prev?.type === "src") {
+        tipImg.src = prev.value;
+        tipImg.style.visibility = "visible";
+      } else if (prev?.type === "bg") {
+        tipImg.src = prev.value;
+        tipImg.style.visibility = "visible";
+      }
+    }
+
+    // 500ms 后自动隐藏
+    frameAdjustTipTimer = setTimeout(() => {
+      tooltip.style.display = "none";
+    }, 500);
+  }
+
+  // 从 video 元素抓取当前帧作为缩略图
+  function captureVideoFrame(timeValue, handleType) {
+    if (!videoEl) return;
+
+    // 保存当前播放状态
+    const wasPlaying = !videoEl.paused;
+    const originalTime = videoEl.currentTime;
+
+    // 如果是 end 滑块，不需要 seek，直接抓取当前播放头的画面
+    if (handleType === 'end') {
+      // 不暂停，直接抓取当前帧
+      requestAnimationFrame(() => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const width = 160;
+        const height = 90;
+        canvas.width = width;
+        canvas.height = height;
+
+        try {
+          ctx.drawImage(videoEl, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+          tipImg.src = dataUrl;
+          tipImg.style.visibility = "visible";
+          bilibiliLog('[Bilibili Z/X] Captured current frame at', videoEl.currentTime.toFixed(3));
+        } catch (e) {
+          bilibiliLog('[Bilibili Z/X] Failed to capture frame:', e.message);
+        }
+      });
+      return;
+    }
+
+    // start 滑块：需要 seek 到目标时间
+    videoEl.pause();
+
+    const onSeeked = () => {
+      videoEl.removeEventListener('seeked', onSeeked);
+
+      // 等待一帧确保画面已渲染
+      requestAnimationFrame(() => {
+        // 创建 canvas 来抓取帧
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // 使用固定的缩略图尺寸
+        const width = 160;
+        const height = 90;
+        canvas.width = width;
+        canvas.height = height;
+
+        try {
+          // 绘制当前帧
+          ctx.drawImage(videoEl, 0, 0, width, height);
+
+          // 转换为 data URL（使用 JPEG 格式，质量 0.8）
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+          tipImg.src = dataUrl;
+          tipImg.style.visibility = "visible";
+
+          bilibiliLog('[Bilibili Z/X] Captured actual video frame at', timeValue.toFixed(3));
+        } catch (e) {
+          bilibiliLog('[Bilibili Z/X] Failed to capture frame:', e.message);
+        }
+
+        // 恢复播放状态
+        if (wasPlaying) {
+          videoEl.play().catch(() => {});
+        }
+      });
+    };
+
+    videoEl.addEventListener('seeked', onSeeked);
+
+    try {
+      videoEl.currentTime = timeValue;
+    } catch (e) {
+      bilibiliLog('[Bilibili Z/X] Failed to seek:', e.message);
+      videoEl.removeEventListener('seeked', onSeeked);
+
+      // seek 失败时恢复播放
+      if (wasPlaying) {
+        videoEl.play().catch(() => {});
+      }
+    }
+  }
+
   function initRangeWhenReady() {
     const d = dur();
     if (!d) return requestAnimationFrame(initRangeWhenReady);
@@ -1133,9 +1507,36 @@ function applyCommand(payload = {}) {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  bilibiliLog('[Bilibili Preload] DOMContentLoaded fired');
+
+  // CRITICAL: Immediately pause any video to prevent autoplay (but don't mute)
+  const pauseVideoImmediately = () => {
+    const video = document.querySelector('video');
+    if (video) {
+      video.pause();
+      bilibiliLog('[Bilibili Preload] Video paused immediately on DOMContentLoaded');
+      return true;
+    }
+    return false;
+  };
+
+  // Try to pause immediately
+  if (!pauseVideoImmediately()) {
+    // If video not ready yet, wait and retry
+    const checkInterval = setInterval(() => {
+      if (pauseVideoImmediately()) {
+        clearInterval(checkInterval);
+      }
+    }, 50);
+
+    // Stop checking after 2 seconds
+    setTimeout(() => clearInterval(checkInterval), 2000);
+  }
+
   mountPlayer();
   suppressEndingPrompts();
   ensureVideo();
+  bilibiliLog('[Bilibili Preload] About to call initClipRange');
   initClipRange();
   scheduleTagProbe(0);
 

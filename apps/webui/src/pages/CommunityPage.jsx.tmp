@@ -1,0 +1,647 @@
+import { useAppContext } from "../context/AppContext";
+import { useState, useCallback, useRef, useEffect } from "react";
+import CollectionManager from "../components/CollectionManager";
+
+export default function CommunityPage() {
+  const app = useAppContext();
+  if (!app) return null;
+
+  // 收藏夹视图状态
+  const [showFavorites, setShowFavorites] = useState(false);
+
+  // 选中的收藏夹ID
+  const [selectedCollectionId, setSelectedCollectionId] = useState(null);
+
+  // 收藏夹管理状态（用于创建/编辑收藏夹）
+  const [showCollectionManager, setShowCollectionManager] = useState(false);
+
+  // 收藏夹选择器状态（点击收藏按钮时显示）
+  const [showCollectionSelector, setShowCollectionSelector] = useState(null); // 存储要操作的卡片ID
+
+  // 跟踪正在拖动的进度条
+  const [draggingCardId, setDraggingCardId] = useState(null);
+  const dragStartTimeRef = useRef(null);
+  const dragStartXRef = useRef(0);
+
+  // 更新视频播放时间的通用函数
+  const updateVideoTime = useCallback((cardId, newTime) => {
+    const webviewId = `community-preview-${cardId}`;
+    const webview = document.getElementById(webviewId);
+
+    if (webview) {
+      try {
+        webview.executeJavaScript(`
+          (function() {
+            const video = document.querySelector('video');
+            if (video) {
+              video.currentTime = ${newTime};
+              console.log('[Progress] Jumped to time:', ${newTime});
+            }
+          })();
+        `).catch((err) => {
+          console.warn('[Progress] Failed to seek video:', err);
+        });
+      } catch (err) {
+        console.warn('[Progress] Failed to execute JavaScript:', err);
+      }
+    }
+
+    // 更新当前时间显示
+    app.setPreviewCurrentTime((prev) => new Map(prev).set(cardId, newTime));
+  }, [app]);
+
+  // 处理进度条点击/拖动开始
+  const handleProgressMouseDown = useCallback((card, e) => {
+    e.stopPropagation();
+    const progressBar = e.currentTarget;
+    const rect = progressBar.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(1, clickX / rect.width));
+    const newTime = card.start + percentage * (card.end - card.start);
+
+    // 立即跳转到点击位置
+    updateVideoTime(card.id, newTime);
+
+    // 设置拖动状态
+    setDraggingCardId(card.id);
+    dragStartTimeRef.current = newTime;
+    dragStartXRef.current = e.clientX;
+  }, [updateVideoTime]);
+
+  // 处理拖动过程中的移动
+  const handleMouseMove = useCallback((e) => {
+    if (draggingCardId === null) return;
+
+    // 找到对应的卡片数据
+    const card = app.communityCardResults.find(c => c.id === draggingCardId);
+    if (!card) return;
+
+    // 计算新的时间
+    const progressBar = document.querySelector(`[data-card-id="${draggingCardId}"] .preview-progress-bar`);
+    if (!progressBar) return;
+
+    const rect = progressBar.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const percentage = x / rect.width;
+    const newTime = card.start + percentage * (card.end - card.start);
+
+    // 更新视频时间
+    updateVideoTime(draggingCardId, newTime);
+  }, [draggingCardId, app.communityCardResults, updateVideoTime]);
+
+  // 处理拖动结束
+  const handleMouseUp = useCallback(() => {
+    if (draggingCardId !== null) {
+      setDraggingCardId(null);
+      dragStartTimeRef.current = null;
+      dragStartXRef.current = 0;
+    }
+  }, [draggingCardId]);
+
+  // 添加全局鼠标事件监听
+  useEffect(() => {
+    if (draggingCardId !== null) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [draggingCardId, handleMouseMove, handleMouseUp]);
+
+  // 获取选中收藏夹的内容
+  const [selectedCollectionCards, setSelectedCollectionCards] = useState([]);
+  const [loadingCollection, setLoadingCollection] = useState(false);
+
+  useEffect(() => {
+    if (showFavorites && selectedCollectionId) {
+      setLoadingCollection(true);
+      import("../collectionApi").then(async ({ getCollectionById }) => {
+        try {
+          const data = await getCollectionById(selectedCollectionId, app.communitySession?.id);
+          if (data.ok) {
+            setSelectedCollectionCards(data.collection.cards || []);
+          } else {
+            setSelectedCollectionCards([]);
+          }
+        } catch (err) {
+          console.error("[Collection] Failed to load collection:", err);
+          setSelectedCollectionCards([]);
+        } finally {
+          setLoadingCollection(false);
+        }
+      });
+    } else {
+      setSelectedCollectionCards([]);
+    }
+  }, [showFavorites, selectedCollectionId, app.communitySession?.id]);
+
+  // 处理卡片收藏到收藏夹
+  const handleAddToCollection = async (cardId, collectionId) => {
+    const result = await app.toggleCardInCollection?.(collectionId, cardId);
+    if (result.ok) {
+      setShowCollectionSelector(null);
+    }
+  };
+
+  // 创建快速收藏夹
+  const handleQuickCreateCollection = async (name) => {
+    const result = await app.createCollection?.(name, "", "private");
+    if (result.ok && showCollectionSelector) {
+      // 自动将卡片添加到新收藏夹
+      await handleAddToCollection(showCollectionSelector, result.collection.id);
+    }
+    return result;
+  };
+
+  return (
+    <section className="panel panel-community">
+      <div className="community-layout">
+        <div className="community-header">
+          <div>
+            <div className="community-title">社区</div>
+            <div className="community-meta">
+              浏览社区分享片段，悬停预览。
+            </div>
+          </div>
+          <div className="community-actions">
+            {app.communitySession ? (
+              <button type="button" className="ghost" onClick={app.handleCommunityLogout}>
+                退出登录
+              </button>
+            ) : (
+              <>
+                <button type="button" className="ghost" onClick={app.openCommunityLogin}>
+                  登录
+                </button>
+                <button type="button" className="ghost" onClick={app.openCommunityRegister}>
+                  注册
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="community-toolbar">
+          <div className="community-tabs">
+            <button
+              type="button"
+              className={"community-tab" + (!showFavorites ? " is-active" : "")}
+              onClick={() => {
+                setShowFavorites(false);
+                setSelectedCollectionId(null);
+              }}
+            >
+              全部
+            </button>
+            <button
+              type="button"
+              className={"community-tab" + (showFavorites ? " is-active" : "")}
+              onClick={() => setShowFavorites(true)}
+            >
+              收藏夹
+            </button>
+          </div>
+          <form
+            className="community-search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              app.refreshCommunitySearch();
+            }}
+          >
+            <input
+              value={app.communitySearchQuery}
+              onChange={(event) => app.setCommunitySearchQuery(event.target.value)}
+              placeholder="搜索公开卡片"
+            />
+            <select
+              value={app.communitySearchSort}
+              onChange={(event) => app.setCommunitySearchSort(event.target.value)}
+            >
+              <option value="latest">最新</option>
+              <option value="hot">热门</option>
+            </select>
+            <button type="submit" className="ghost">
+              搜索
+            </button>
+          </form>
+          {app.communityStatus.error ? (
+            <div className="community-error">{app.communityStatus.error}</div>
+          ) : null}
+        </div>
+
+        <div className="community-content">
+          {showFavorites ? (
+            // 收藏夹视图：左侧列表，右侧内容
+            <div className="collection-view">
+              {/* 左侧收藏夹列表 */}
+              <div className="collection-sidebar">
+                <div className="collection-sidebar-header">
+                  <h3>我的收藏夹</h3>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() => setShowCollectionManager(true)}
+                    title="管理收藏夹"
+                  >
+                    ⚙️
+                  </button>
+                </div>
+
+                {app.communitySession ? (
+                  <div className="collection-list">
+                    {app.collections && app.collections.length > 0 ? (
+                      // 排序：默认收藏夹在最前面，然后按更新时间降序
+                      [...app.collections].sort((a, b) => {
+                        if (a.isDefault && !b.isDefault) return -1;
+                        if (!a.isDefault && b.isDefault) return 1;
+                        return (b.updatedAt || 0) - (a.updatedAt || 0);
+                      }).map((collection) => (
+                        <div
+                          key={collection.id}
+                          className={"collection-item" + (selectedCollectionId === collection.id ? " is-active" : "")}
+                          onClick={() => setSelectedCollectionId(collection.id)}
+                        >
+                          <div className="collection-item-info">
+                            <div className="collection-item-name">
+                              {collection.name}
+                              {collection.isDefault && (
+                                <span className="collection-item-default-badge">默认</span>
+                              )}
+                            </div>
+                            <div className="collection-item-meta">
+                              <span className="collection-item-count">
+                                {collection.cardIds?.length || 0} 个卡片
+                              </span>
+                              <span className={"collection-item-visibility " + collection.visibility}>
+                                {collection.visibility === "public" ? "🌐" : "🔒"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="collection-empty-hint">
+                        还没有收藏夹
+                        <button
+                          type="button"
+                          className="ghost small"
+                          onClick={() => setShowCollectionManager(true)}
+                        >
+                          创建收藏夹
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="collection-login-hint">
+                    登录后可使用收藏夹
+                    <button
+                      type="button"
+                      className="ghost small"
+                      onClick={app.openCommunityLogin}
+                    >
+                      登录
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* 右侧收藏夹内容 */}
+              <div className="collection-content">
+                {selectedCollectionId ? (
+                  loadingCollection ? (
+                    <div className="collection-loading">加载中...</div>
+                  ) : selectedCollectionCards.length > 0 ? (
+                    <div className="manage-cards">
+                      {selectedCollectionCards.map((card) => {
+                        const progress =
+                          card.end > card.start
+                            ? ((app.previewCurrentTime.get(card.id) || card.start) - card.start) /
+                              (card.end - card.start)
+                            : 0;
+                        const progressPercent = Math.max(0, Math.min(100, progress * 100));
+                        const isDragging = draggingCardId === card.id;
+
+                        return (
+                          <div
+                            key={card.id}
+                            className="manage-card"
+                            data-card-id={card.id}
+                            onClick={() => app.setActiveId && app.setActiveId(card.id)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <div className="manage-card-head">
+                              <div className="manage-card-head-row">
+                                <div className="manage-card-head-left">
+                                  <div className="manage-card-info">
+                                    <div className="manage-card-title">{card.title || "未命名卡片"}</div>
+                                    <div
+                                      className="save-item-meta"
+                                      dangerouslySetInnerHTML={{
+                                        __html: `<span class="save-item-duration">⏱ ${app.formatTime(card.end - card.start)}</span><span class="save-item-source">${card.source === 'local' ? '📁 本地' : '🎵 B站'}</span>`
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="manage-card-head-right">
+                                  <div className={"manage-visibility " + card.visibility}>
+                                    {card.visibility === "public" ? "🌐 公开" : "🔒 私有"}
+                                  </div>
+                                  <div className="manage-card-actions">
+                                    <button
+                                      type="button"
+                                      className="ghost manage-card-action-btn"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        app.handleToggleCardFavorite(card);
+                                      }}
+                                      title={app.favoriteCardIds.has(card.id) ? "取消收藏" : "收藏"}
+                                    >
+                                      {app.favoriteCardIds.has(card.id) ? "★" : "☆"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="ghost manage-card-action-btn"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        app.handleOpenCardDetail(card);
+                                      }}
+                                      title="查看详情"
+                                    >
+                                      📖
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div
+                              className="manage-card-preview"
+                              onMouseEnter={() => app.handleCommunityHoverStart(card)}
+                              onMouseLeave={() => app.handleCommunityHoverEnd(card)}
+                            >
+                              <div className="preview-container">
+                                {app.webviewCommunityIds.has(card.id) ? (
+                                  <>
+                                    {card.source === "local" && card.localPath ? (
+                                      <app.LocalCardPreview
+                                        card={card}
+                                        videoId={`community-preview-${card.id}`}
+                                        className="card-preview-webview"
+                                        muted={false}
+                                        isHovered={app.hoveredCommunityId === card.id}
+                                        onTimeUpdate={(time) => {
+                                          app.setPreviewCurrentTime((prev) => new Map(prev).set(card.id, time));
+                                        }}
+                                      />
+                                    ) : (
+                                      <webview
+                                        id={`community-preview-${card.id}`}
+                                        data-card-id={card.id}
+                                        data-bvid={card.bvid}
+                                        data-start={card.start}
+                                        data-end={card.end}
+                                        src={app.buildCardPreviewUrl({
+                                          bvid: card.bvid,
+                                          start: card.start,
+                                          end: card.end
+                                        })}
+                                        className="card-preview-webview"
+                                        allowpopups="true"
+                                        httpreferrer="https://www.bilibili.com"
+                                        useragent={app.bilibiliUserAgent}
+                                        partition="temp:bili"
+                                        preload={window.env?.bilibiliPagePreload}
+                                        style={{ opacity: 1, width: "100%", height: "100%" }}
+                                      />
+                                    )}
+                                    <div className="preview-bottom-shield" />
+                                    <div
+                                      className="preview-progress-bar"
+                                      onMouseDown={(e) => handleProgressMouseDown(card, e)}
+                                      style={{ cursor: isDragging ? 'grabbing' : 'pointer' }}
+                                    >
+                                      <div className="preview-progress-track" />
+                                      <div
+                                        className="preview-progress-handle"
+                                        style={{
+                                          left: `${progressPercent}%`,
+                                          cursor: isDragging ? 'grabbing' : 'grab'
+                                        }}
+                                      />
+                                      <div
+                                        className="preview-progress-track"
+                                        style={{ width: `${progressPercent}%` }}
+                                      />
+                                    </div>
+                                    <div className="preview-range-markers">
+                                      <div className="preview-range-marker">
+                                        {app.formatTime(
+                                          Math.floor(
+                                            (app.previewCurrentTime.get(card.id) || card.start) - card.start
+                                          )
+                                        )}
+                                      </div>
+                                      <div className="preview-range-marker">
+                                        {app.formatTime(Math.floor(card.end - card.start))}
+                                      </div>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="preview-placeholder">
+                                    <div className="preview-placeholder-content">
+                                      <div className="preview-placeholder-icon"></div>
+                                      <div className="preview-placeholder-text">悬停预览</div>
+                                    </div>
+                                  </div>
+                                )}
+                                {app.communityLoadingState.get(card.id)?.webviewLoading &&
+                                app.webviewCommunityIds.has(card.id) &&
+                                card.source !== "local" ? (
+                                  <div className="preview-overlay">
+                                    <div className="preview-overlay-spinner" />
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="collection-empty">该收藏夹还没有卡片</div>
+                  )
+                ) : (
+                  <div className="collection-empty">
+                    {app.communitySession ? "选择一个收藏夹查看内容" : "登录后可查看收藏夹"}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            // 全部卡片视图
+            <div className="community-list manage-cards">
+              {app.communityCardResults.length ? (
+                app.communityCardResults.map((card) => {
+                const progress =
+                  card.end > card.start
+                    ? ((app.previewCurrentTime.get(card.id) || card.start) - card.start) /
+                      (card.end - card.start)
+                    : 0;
+                const progressPercent = Math.max(0, Math.min(100, progress * 100));
+                const isDragging = draggingCardId === card.id;
+
+                return (
+                  <div
+                    key={card.id}
+                    className="manage-card"
+                    data-card-id={card.id}
+                    onClick={() => app.setActiveId && app.setActiveId(card.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="manage-card-head">
+                      <div className="manage-card-head-row">
+                        <div className="manage-card-head-left">
+                          <div className="manage-card-info">
+                            <div className="manage-card-title">{card.title || "未命名卡片"}</div>
+                            <div
+                              className="save-item-meta"
+                              dangerouslySetInnerHTML={{
+                                __html: `<span class="save-item-duration">⏱ ${app.formatTime(card.end - card.start)}</span><span class="save-item-source">${card.source === 'local' ? '📁 本地' : '🎵 B站'}</span>`
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="manage-card-head-right">
+                          <div className={"manage-visibility " + card.visibility}>
+                            {card.visibility === "public" ? "🌐 公开" : "🔒 私有"}
+                          </div>
+                          <div className="manage-card-actions">
+                            <button
+                              type="button"
+                              className="ghost manage-card-action-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                app.handleToggleCardFavorite(card);
+                              }}
+                              title={app.favoriteCardIds.has(card.id) ? "取消收藏" : "收藏"}
+                            >
+                              {app.favoriteCardIds.has(card.id) ? "★" : "☆"}
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost manage-card-action-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                app.handleOpenCardDetail(card);
+                              }}
+                              title="查看详情"
+                            >
+                              📖
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      className="manage-card-preview"
+                      onMouseEnter={() => app.handleCommunityHoverStart(card)}
+                      onMouseLeave={() => app.handleCommunityHoverEnd(card)}
+                    >
+                      <div className="preview-container">
+                        {app.webviewCommunityIds.has(card.id) ? (
+                          <>
+                            {card.source === "local" && card.localPath ? (
+                              <app.LocalCardPreview
+                                card={card}
+                                videoId={`community-preview-${card.id}`}
+                                className="card-preview-webview"
+                                muted={false}
+                                isHovered={app.hoveredCommunityId === card.id}
+                                onTimeUpdate={(time) => {
+                                  app.setPreviewCurrentTime((prev) => new Map(prev).set(card.id, time));
+                                }}
+                              />
+                            ) : (
+                              <webview
+                                id={`community-preview-${card.id}`}
+                                data-card-id={card.id}
+                                data-bvid={card.bvid}
+                                data-start={card.start}
+                                data-end={card.end}
+                                src={app.buildCardPreviewUrl({
+                                  bvid: card.bvid,
+                                  start: card.start,
+                                  end: card.end
+                                })}
+                                className="card-preview-webview"
+                                allowpopups="true"
+                                httpreferrer="https://www.bilibili.com"
+                                useragent={app.bilibiliUserAgent}
+                                partition="temp:bili"
+                                preload={window.env?.bilibiliPagePreload}
+                                style={{ opacity: 1, width: "100%", height: "100%" }}
+                              />
+                            )}
+                            <div className="preview-bottom-shield" />
+                            <div
+                              className="preview-progress-bar"
+                              onMouseDown={(e) => handleProgressMouseDown(card, e)}
+                              style={{ cursor: isDragging ? 'grabbing' : 'pointer' }}
+                            >
+                              <div className="preview-progress-track" />
+                              <div
+                                className="preview-progress-handle"
+                                style={{
+                                  left: `${progressPercent}%`,
+                                  cursor: isDragging ? 'grabbing' : 'grab'
+                                }}
+                              />
+                              <div
+                                className="preview-progress-track"
+                                style={{ width: `${progressPercent}%` }}
+                              />
+                            </div>
+                            <div className="preview-range-markers">
+                              <div className="preview-range-marker">
+                                {app.formatTime(
+                                  Math.floor(
+                                    (app.previewCurrentTime.get(card.id) || card.start) - card.start
+                                  )
+                                )}
+                              </div>
+                              <div className="preview-range-marker">
+                                {app.formatTime(Math.floor(card.end - card.start))}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="preview-placeholder">
+                            <div className="preview-placeholder-content">
+                              <div className="preview-placeholder-icon"></div>
+                              <div className="preview-placeholder-text">悬停预览</div>
+                            </div>
+                          </div>
+                        )}
+                        {app.communityLoadingState.get(card.id)?.webviewLoading &&
+                        app.webviewCommunityIds.has(card.id) &&
+                        card.source !== "local" ? (
+                          <div className="preview-overlay">
+                            <div className="preview-overlay-spinner" />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="manage-empty">未找到社区卡片。</div>
+            )}
+            </div>

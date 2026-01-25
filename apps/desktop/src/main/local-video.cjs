@@ -107,6 +107,24 @@ async function selectVideoFile(mainWindow) {
 }
 
 /**
+ * 打开文件选择对话框（支持自定义过滤器）
+ * @param {Object} mainWindow - Electron主窗口
+ * @param {Array} filters - 文件过滤器数组
+ * @returns {Promise<Object|null>} 选择结果 { canceled, filePaths }
+ */
+async function selectFile(mainWindow, filters = []) {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "选择文件",
+    properties: ["openFile"],
+    filters: filters.length > 0 ? filters : [
+      { name: "所有文件", extensions: ["*"] }
+    ]
+  });
+
+  return result;
+}
+
+/**
  * 使用FFmpeg获取视频元数据
  * @param {string} filePath - 视频文件路径
  * @returns {Promise<Object>} 视频元数据
@@ -127,7 +145,7 @@ async function getVideoMetadata(filePath) {
     const args = [
       "-v", "error",
       "-show_entries", "format=duration,size",
-      "-show_entries", "stream=width,height,codec_name,codec_type",
+      "-show_entries", "stream=width,height,codec_name,codec_type,r_frame_rate",
       "-of", "json",
       filePath
     ];
@@ -197,7 +215,16 @@ async function getVideoMetadata(filePath) {
         // 提取编码
         const codec = videoStream?.codec_name || "";
 
-        console.log('成功解析元数据:', { duration, width, height, codec });
+        // 提取帧率
+        let fps = 30; // 默认值
+        if (videoStream?.r_frame_rate) {
+          const [num, den] = videoStream.r_frame_rate.split('/').map(Number);
+          if (den && den > 0) {
+            fps = num / den;
+          }
+        }
+
+        console.log('成功解析元数据:', { duration, width, height, codec, fps });
 
         resolve({
           duration,
@@ -205,6 +232,7 @@ async function getVideoMetadata(filePath) {
           width,
           height,
           codec,
+          fps,
           filePath
         });
       } catch (error) {
@@ -228,6 +256,12 @@ async function getVideoMetadata(filePath) {
  * @param {string} filePath - 视频文件路径
  * @returns {Promise<Object>} 视频信息
  */
+// 缓存元数据,避免重复获取
+const metadataCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
+// 静默日志,避免控制台被淹没
+const ENABLE_CACHE_LOGS = false; // 设为 true 可启用调试日志
+
 async function getVideoInfoQuick(filePath) {
   if (!checkFileExists(filePath)) {
     return {
@@ -236,8 +270,42 @@ async function getVideoInfoQuick(filePath) {
     };
   }
 
+  // 检查缓存
+  const cacheKey = filePath;
+  const cached = metadataCache.get(cacheKey);
+  const now = Date.now();
+
+  if (cached && (now - cached.timestamp) < CACHE_TTL) {
+    // 缓存命中,静默返回
+    if (ENABLE_CACHE_LOGS) {
+      console.log('[缓存命中] 使用缓存的视频信息:', filePath);
+    }
+    return {
+      exists: true,
+      duration: cached.data.duration,
+      fileSize: cached.data.fileSize,
+      width: cached.data.width,
+      height: cached.data.height
+    };
+  }
+
   try {
+    if (ENABLE_CACHE_LOGS) {
+      console.log('[获取元数据] 未命中缓存,调用FFprobe:', filePath);
+    }
     const metadata = await getVideoMetadata(filePath);
+
+    // 存入缓存
+    metadataCache.set(cacheKey, {
+      timestamp: now,
+      data: {
+        duration: metadata.duration,
+        fileSize: metadata.fileSize,
+        width: metadata.width,
+        height: metadata.height
+      }
+    });
+
     return {
       exists: true,
       duration: metadata.duration,
@@ -258,6 +326,7 @@ module.exports = {
   selectVideoFolder,
   scanVideoFiles,
   selectVideoFile,
+  selectFile,
   getVideoMetadata,
   getVideoInfoQuick
 };

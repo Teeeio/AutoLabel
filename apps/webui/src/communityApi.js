@@ -109,6 +109,14 @@ export async function toggleFavorite(tagId) {
   return request(`/api/favorites/${tagId}`, { method: "POST" });
 }
 
+export async function toggleCardFavorite(cardId) {
+  return request(`/api/card-favorites/${cardId}`, { method: "POST" });
+}
+
+export async function getCardFavorites() {
+  return request("/api/my/card-favorites");
+}
+
 export async function createCard(payload) {
   return request("/api/cards", {
     method: "POST",

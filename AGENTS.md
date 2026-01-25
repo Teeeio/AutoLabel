@@ -3,6 +3,8 @@
 ## Project Structure & Module Organization
 - `apps/desktop/`: Electron main process and preload scripts. Main entry: `src/main/index.cjs`
 - `apps/webui/`: React UI for card/community workflow. Entry: `src/main.jsx`
+- `apps/webui/src/`: WebUI code split into `pages/`, `layout/`, `components/`, `hooks/`, `routes/`, `context/`, `utils/`
+- `apps/webui/src/App.jsx`: Orchestrator that wires context + hooks + routes; keep page/layout UI in their respective modules
 - `apps/server/`: Express.js backend API for community features. Entry: `index.js`
 - `packages/core/`: Shared utilities and validation logic. Entry: `src/card.js`
 - `dist/`: Build outputs for desktop app and bundled UI (created by build scripts)

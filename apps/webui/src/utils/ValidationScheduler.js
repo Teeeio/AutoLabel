@@ -95,7 +95,7 @@ class ValidationScheduler {
     const task = this.tasks.get(taskId);
     if (task) {
       task.cards = cards.filter(c => c && (c.bvid || c.localPath));
-      console.log(`更新任务卡片: ${taskId}, 卡片数: ${task.cards.length}`);
+      // 静默更新,不打印日志以避免控制台被淹没
     }
   }
 

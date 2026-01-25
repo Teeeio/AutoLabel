@@ -1,0 +1,153 @@
+<svg width="1400" height="900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .box { fill: #f0f4f8; stroke: #334155; stroke-width: 2; }
+      .box-process { fill: #dbeafe; stroke: #1e40af; stroke-width: 2; }
+      .box-success { fill: #dcfce7; stroke: #16a34a; stroke-width: 2; }
+      .text { font-family: monospace; font-size: 11px; fill: #1e293b; }
+      .text-title { font-family: sans-serif; font-size: 14px; font-weight: bold; fill: #0f172a; }
+      .text-small { font-family: monospace; font-size: 9px; fill: #64748b; }
+      .arrow { stroke: #3b82f6; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .arrow-success { stroke: #22c55e; stroke-width: 2; fill: none; marker-end: url(#arrowhead-success); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#3b82f6" />
+    </marker>
+    <marker id="arrowhead-success" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#22c55e" />
+    </marker>
+  </defs>
+
+  <!-- 标题 -->
+  <text x="700" y="25" text-anchor="middle" class="text-title" font-size="20">一次性处理架构 (One-Pass Pipeline)</text>
+
+  <!-- 输入视频 -->
+  <g transform="translate(50, 60)">
+    <rect x="0" y="0" width="280" height="150" rx="5" class="box" />
+    <text x="10" y="20" class="text-title">输入视频 1</text>
+    <text x="10" y="40" class="text">源文件: video_2025-08-16.mp4</text>
+    <text x="10" y="55" class="text">时间: 0.0s - 4.8s</text>
+    <text x="10" y="70" class="text">帧率: 24 fps</text>
+    <text x="10" y="85" class="text">分辨率: 1536x1080</text>
+    <text x="10" y="100" class="text">编码: H.264 yuvj422p</text>
+    <text x="10" y="115" class="text">音频: 无</text>
+  </g>
+
+  <g transform="translate(1070, 60)">
+    <rect x="0" y="0" width="280" height="150" rx="5" class="box" />
+    <text x="10" y="20" class="text-title">输入视频 2</text>
+    <text x="10" y="40" class="text">源文件: 37.5.mp4</text>
+    <text x="10" y="55" class="text">时间: 37.0s - 82.6s</text>
+    <text x="10" y="70" class="text">帧率: 25 fps</text>
+    <text x="10" y="85" class="text">分辨率: 1280x720</text>
+    <text x="10" y="100" class="text">编码: H.264 yuv420p</text>
+    <text x="10" y="115" class="text">音频: AAC 48kHz</text>
+  </g>
+
+  <!-- 箭头指向处理中心 -->
+  <path d="M 190 210 L 190 250 L 550 250" class="arrow" />
+  <path d="M 1210 210 L 1210 250 L 850 250" class="arrow" />
+
+  <!-- Filter Complex 处理中心 -->
+  <g transform="translate(300, 250)">
+    <rect x="0" y="0" width="800" height="450" rx="5" class="box-process" />
+    <text x="10" y="20" class="text-title" font-size="16">FFmpeg Filter Complex 一次性处理</text>
+
+    <!-- 视频 1 处理链 -->
+    <text x="10" y="45" class="text-title" fill="#dc2626">视频 1 处理链:</text>
+    <rect x="10" y="55" width="780" height="130" fill="#1e293b" />
+    <text x="15" y="70" class="text" fill="#ffffff">[0:v] trim=start=0:end=4.8, setpts=PTS-STARTPTS,</text>
+    <text x="15" y="83" class="text" fill="#ffffff">      scale=1920:1080:force_original_aspect_ratio=decrease,</text>
+    <text x="15" y="96" class="text" fill="#ffffff">      pad=1920:1080:(ow-iw)/2:(oh-ih)/2,</text>
+    <text x="15" y="109" class="text" fill="#ffffff">      fps=30, format=yuv420p [v0]</text>
+
+    <text x="10" y="130" class="text-small">• trim: 精确裁剪 (0s → 4.8s)</text>
+    <text x="10" y="143" class="text-small">• setpts: 重置时间戳 (从 0 开始)</text>
+    <text x="10" y="156" class="text-small">• scale: 缩放到 1920x1080 (保持比例)</text>
+    <text x="10" y="169" class="text-small">• pad: 添加黑边居中</text>
+    <text x="10" y="182" class="text-small">• fps: 统一为 30fps</text>
+
+    <!-- 视频 2 处理链 -->
+    <text x="10" y="205" class="text-title" fill="#dc2626">视频 2 处理链:</text>
+    <rect x="10" y="215" width="780" height="130" fill="#1e293b" />
+    <text x="15" y="230" class="text" fill="#ffffff">[1:v] trim=start=37:end=82.6, setpts=PTS-STARTPTS,</text>
+    <text x="15" y="243" class="text" fill="#ffffff">      scale=1920:1080:force_original_aspect_ratio=decrease,</text>
+    <text x="15" y="256" class="text" fill="#ffffff">      pad=1920:1080:(ow-iw)/2:(oh-ih)/2,</text>
+    <text x="15" y="269" class="text" fill="#ffffff">      fps=30, format=yuv420p [v1]</text>
+
+    <text x="10" y="290" class="text-small">• trim: 精确裁剪 (37s → 82.6s)</text>
+    <text x="10" y="303" class="text-small">• setpts: 重置时间戳 (从 0 开始)</text>
+    <text x="10" y="316" class="text-small">• scale: 缩放到 1920x1080 (保持比例)</text>
+    <text x="10" y="329" class="text-small">• pad: 添加黑边居中</text>
+    <text x="10" y="342" class="text-small">• fps: 统一为 30fps</text>
+
+    <!-- 音频处理链 -->
+    <text x="10" y="365" class="text-title" fill="#dc2626">音频处理链:</text>
+    <rect x="10" y="375" width="780" height="60" fill="#1e293b" />
+    <text x="15" y="390" class="text" fill="#ffffff">[0:a] atrim=start=0:end=4.8, asetpts=PTS-STARTPTS, aformat=sample_rates=48000 [a0]</text>
+    <text x="15" y="403" class="text" fill="#ffffff">[1:a] atrim=start=37:end=82.6, asetpts=PTS-STARTPTS, aformat=sample_rates=48000 [a1]</text>
+
+    <text x="10" y="425" class="text-small">• atrim: 精确裁剪音频</text>
+    <text x="10" y="438" class="text-small">• asetpts: 重置音频时间戳</text>
+  </g>
+
+  <!-- 箭头指向拼接 -->
+  <path d="M 700 700 L 700 730" class="arrow-success" />
+
+  <!-- Concat 拼接 -->
+  <g transform="translate(300, 730)">
+    <rect x="0" y="0" width="800" height="80" rx="5" class="box-success" />
+    <text x="10" y="20" class="text-title">Concat 拼接</text>
+
+    <rect x="10" y="30" width="780" height="40" fill="#1e293b" />
+    <text x="15" y="45" class="text" fill="#ffffff">[v0][a0][v1][a1] concat=n=2:v=1:a=1 [v][a]</text>
+
+    <text x="10" y="70" class="text-small">效果: 将两个标准化的视频和音频拼接为一个连续的时间轴</text>
+  </g>
+
+  <!-- 向下的箭头 -->
+  <path d="M 700 810 L 700 840" class="arrow-success" />
+
+  <!-- 最终输出 -->
+  <g transform="translate(300, 840)">
+    <rect x="0" y="0" width="800" height="40" rx="5" class="box-success" />
+    <text x="400" y="25" text-anchor="middle" class="text-title" font-size="16">✅ 最终输出: dance_xxx.mp4 (50.36s, 30fps, 1920x1080)</text>
+  </g>
+
+  <!-- 右侧说明 -->
+  <g transform="translate(1130, 250)">
+    <rect x="0" y="0" width="220" height="200" rx="5" class="box" />
+    <text x="10" y="20" class="text-title">关键优势</text>
+
+    <text x="10" y="40" class="text-title" font-size="12">1. 精确裁剪</text>
+    <text x="10" y="55" class="text-small">使用 trim 滤镜</text>
+    <text x="10" y="68" class="text-small">精确到帧级别</text>
+    <text x="10" y="81" class="text-small">偏差 < 0.01s</text>
+
+    <text x="10" y="100" class="text-title" font-size="12">2. 无中间文件</text>
+    <text x="10" y="115" class="text-small">不生成 clip_*.mp4</text>
+    <text x="10" y="128" class="text-small">节省 ~15MB 空间</text>
+    <text x="10" y="141" class="text-small">减少 IO 开销</text>
+
+    <text x="10" y="160" class="text-title" font-size="12">3. 时间戳连续</text>
+    <text x="10" y="175" class="text-small">setpts/asetpts</text>
+    <text x="10" y="188" class="text-small">确保拼接流畅</text>
+  </g>
+
+  <g transform="translate(50, 500)">
+    <rect x="0" y="0" width="220" height="200" rx="5" class="box-warning" />
+    <text x="10" y="20" class="text-title">与旧架构对比</text>
+
+    <text x="10" y="45" class="text-title" font-size="12">旧架构:</text>
+    <text x="10" y="60" class="text-small">1. 裁剪 (clip_0.mp4)</text>
+    <text x="10" y="75" class="text-small">2. 裁剪 (clip_1.mp4)</text>
+    <text x="10" y="90" class="text-small">3. 拼接</text>
+    <text x="10" y="105" class="text-small">4. 清理</text>
+    <text x="10" y="125" class="text-small">⚠️ 裁剪不精确</text>
+    <text x="10" y="140" class="text-small">⚠️ 时长 52s</text>
+    <text x="10" y="155" class="text-small">⚠️ 60-90秒</text>
+
+    <text x="10" y="180" class="text-title" font-size="12">新架构:</text>
+    <text x="10" y="195" class="text-small">✅ 一次性处理</text>
+  </g>
+</svg>

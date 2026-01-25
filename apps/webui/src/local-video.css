@@ -6,8 +6,6 @@
   background: #000;
   border-radius: 16px;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
   position: relative;
   min-height: 360px; /* 确保有最小高度 */
 }
@@ -16,37 +14,35 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  flex: 1;
   display: block;
-  min-height: 360px; /* 确保视频元素有最小高度 */
 }
 
 /* 时间轴 - 与B站一致 */
 .timeline {
   position: relative;
-  height: 64px;
+  height: 54px;
   display: flex;
   align-items: center;
   cursor: pointer;
   user-select: none;
   overflow: visible;
   pointer-events: auto;
-  padding: 0 18px;
+  padding: 0 12px;
 }
 
 .timeline-bar {
   position: absolute;
   left: 0;
   right: 0;
-  height: 8px;
+  height: 6px;
   border-radius: 999px;
-  background: #8f98a4;
+  background: rgba(143, 152, 164, 0.7);
   z-index: auto;
 }
 
 .timeline-selection {
   position: absolute;
-  height: 8px;
+  height: 6px;
   border-radius: 999px;
   background: rgba(64, 196, 255, 0.45);
   box-shadow: 0 0 0 1px rgba(64, 196, 255, 0.75);
@@ -57,7 +53,7 @@
 }
 
 .timeline-selection:hover {
-  height: 12px;
+  height: 10px;
 }
 
 /* B站风格滑块样式 - 增大尺寸 */
@@ -146,22 +142,22 @@
 
 .timeline-playhead {
   position: absolute;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 999px;
   background: #ffffff;
   cursor: ew-resize;
   pointer-events: auto;
   border: 2px solid #40c4ff;
-  box-shadow: 0 0 0 10px rgba(64, 196, 255, 0.22);
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
-  z-index: 4;
+  box-shadow: 0 0 0 8px rgba(64, 196, 255, 0.22);
+  transition: left 0.1s linear, transform 0.12s ease, box-shadow 0.12s ease;
   opacity: 1;
+  will-change: left;
 }
 
 .timeline-playhead:hover {
   transform: translateX(-50%) scale(1.22);
-  box-shadow: 0 0 0 12px rgba(64, 196, 255, 0.28);
+  box-shadow: 0 0 0 10px rgba(64, 196, 255, 0.28);
 }
 
 .timeline-label {
@@ -176,23 +172,62 @@
 }
 
 /* 播放器控制栏 */
-.player-overlay {
+.local-player-overlay {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
+  top: auto;
+  display: flex;
+  flex-direction: column;
   background: linear-gradient(to top, rgba(12, 14, 18, 0.96) 0%, rgba(12, 14, 18, 0.8) 50%, transparent 100%);
-  padding: 18px;
+  padding: 10px 16px 12px;
   opacity: 1;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.25s ease, transform 0.25s ease;
   pointer-events: auto;
+  backdrop-filter: blur(6px);
+  z-index: 6;
+  box-sizing: border-box;
+  gap: 8px;
+  min-height: 100px;
+}
+
+.local-player-timeline {
+  width: 100%;
+  height: 48px;
+  pointer-events: auto;
+  flex-shrink: 0;
+}
+
+.local-player-controls {
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.local-player-overlay .timeline {
+  position: relative;
+  height: 100%;
+  margin: 0;
+  z-index: 2;
+}
+
+.local-player-overlay .player-controls {
+  position: relative;
+  margin: 0;
+  z-index: 2;
+}
+
+.local-player-overlay.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
 }
 
 .player-controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 10px;
   font-size: 12px;
   color: rgba(244, 242, 238, 0.9);
 }
@@ -202,9 +237,9 @@
   border: none;
   color: rgba(244, 242, 238, 0.9);
   cursor: pointer;
-  font-size: 16px;
-  width: 36px;
-  height: 36px;
+  font-size: 15px;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -238,7 +273,7 @@
   font-size: 12px;
   color: rgba(64, 196, 255, 0.9);
   background: rgba(64, 196, 255, 0.15);
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: 6px;
   font-variant-numeric: tabular-nums;
 }
@@ -283,7 +318,7 @@
   color: rgba(244, 242, 238, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: 5px 8px;
   font-size: 12px;
   cursor: pointer;
   transition: background 0.2s ease;

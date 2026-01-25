@@ -1,0 +1,295 @@
+<svg width="1200" height="900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font-size: 24px; font-weight: bold; fill: #1e293b; }
+      .section-title { font-size: 16px; font-weight: 600; fill: #334155; }
+      .box { fill: #ffffff; stroke: #94a3b8; stroke-width: 2; rx: 8; }
+      .box-header { fill: #f1f5f9; }
+      .box-title { font-size: 14px; font-weight: 600; fill: #0f172a; }
+      .box-text { font-size: 12px; fill: #475569; }
+      .arrow { stroke: #3b82f6; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .dashed-arrow { stroke: #64748b; stroke-width: 2; fill: none; stroke-dasharray: 5,5; marker-end: url(#arrowhead-gray); }
+      .data-flow { stroke: #059669; stroke-width: 2; fill: none; marker-end: url(#arrowhead-green); }
+      .component { fill: #dbeafe; stroke: #3b82f6; stroke-width: 2; rx: 6; }
+      .component-title { font-size: 13px; font-weight: 600; fill: #1d4ed8; }
+      .storage { fill: #fef3c7; stroke: #f59e0b; stroke-width: 2; rx: 6; }
+      .storage-title { font-size: 13px; font-weight: 600; fill: #b45309; }
+      .api { fill: #f3e8ff; stroke: #9333ea; stroke-width: 2; rx: 6; }
+      .api-title { font-size: 13px; font-weight: 600; fill: #7e22ce; }
+      .badge { fill: #059669; rx: 4; }
+      .badge-text { font-size: 10px; fill: #ffffff; font-weight: 600; }
+      .cv-badge { fill: #3b82f6; rx: 4; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#3b82f6"/>
+    </marker>
+    <marker id="arrowhead-gray" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#64748b"/>
+    </marker>
+    <marker id="arrowhead-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#059669"/>
+    </marker>
+  </defs>
+
+  <!-- 标题 -->
+  <text x="600" y="40" text-anchor="middle" class="title">快速随舞生成器 - 系统架构图</text>
+
+  <!-- ==================== 左侧：卡片管理区域 ==================== -->
+
+  <!-- 卡片池 -->
+  <rect x="50" y="80" width="280" height="320" class="box"/>
+  <rect x="50" y="80" width="280" height="35" class="box-header" rx="8"/>
+  <rect x="50" y="108" width="280" height="7" fill="#f1f5f9"/>
+  <text x="190" y="105" text-anchor="middle" class="box-title">卡片池 (GeneratorPage)</text>
+
+  <g transform="translate(70, 130)">
+    <rect x="0" y="0" width="240" height="70" class="component"/>
+    <text x="120" y="20" text-anchor="middle" class="component-title">卡片源切换</text>
+    <text x="120" y="40" text-anchor="middle" class="box-text">• 我的卡片 (本地+服务器)</text>
+    <text x="120" y="55" text-anchor="middle" class="box-text">• 收藏夹 (收藏的卡片)</text>
+  </g>
+
+  <g transform="translate(70, 210)">
+    <rect x="0" y="0" width="240" height="60" class="component"/>
+    <text x="120" y="20" text-anchor="middle" class="component-title">卡片搜索</text>
+    <text x="120" y="40" text-anchor="middle" class="box-text">按标题/BVID/标签搜索</text>
+  </g>
+
+  <g transform="translate(70, 280)">
+    <rect x="0" y="0" width="240" height="100" class="component"/>
+    <text x="120" y="20" text-anchor="middle" class="component-title">卡片列表</text>
+    <text x="50" y="45" class="box-text">📌 卡片标题</text>
+    <text x="50" y="60" class="box-text">🔖 CV号 (如: CV1a2B3c4)</text>
+    <text x="50" y="75" class="box-text">⏱️ 片段时长 (00:30)</text>
+    <rect x="150" y="65" width="70" height="18" class="badge"/>
+    <text x="185" y="78" text-anchor="middle" class="badge-text">NEW</text>
+  </g>
+
+  <!-- 配置面板 -->
+  <rect x="50" y="420" width="280" height="280" class="box"/>
+  <rect x="50" y="420" width="280" height="35" class="box-header" rx="8"/>
+  <rect x="50" y="448" width="280" height="7" fill="#f1f5f9"/>
+  <text x="190" y="445" text-anchor="middle" class="box-title">配置面板</text>
+
+  <g transform="translate(70, 470)">
+    <rect x="0" y="0" width="240" height="70" class="component"/>
+    <text x="120" y="20" text-anchor="middle" class="component-title">已选卡片</text>
+    <text x="120" y="40" text-anchor="middle" class="box-text">显示顺序、移除操作</text>
+    <text x="120" y="55" text-anchor="middle" class="box-text">支持拖拽排序</text>
+  </g>
+
+  <g transform="translate(70, 550)">
+    <rect x="0" y="0" width="240" height="130" class="component"/>
+    <text x="120" y="20" text-anchor="middle" class="component-title">拼接规则</text>
+    <text x="20" y="45" class="box-text">• 直接拼接</text>
+    <text x="20" y="65" class="box-text">• 交叉淡入淡出</text>
+    <text x="20" y="85" class="box-text">• 重叠时长: {重叠秒数}</text>
+    <text x="20" y="105" class="box-text">• 淡入淡出时长: {秒数}</text>
+  </g>
+
+  <!-- ==================== 中间：处理流程 ==================== -->
+
+  <!-- 生成引擎 -->
+  <rect x="400" y="80" width="300" height="200" class="box"/>
+  <rect x="400" y="80" width="300" height="35" class="box-header" rx="8"/>
+  <rect x="400" y="108" width="300" height="7" fill="#f1f5f9"/>
+  <text x="550" y="105" text-anchor="middle" class="box-title">生成引擎 (Generator)</text>
+
+  <g transform="translate(420, 130)">
+    <rect x="0" y="0" width="260" height="50" class="component"/>
+    <text x="130" y="20" text-anchor="middle" class="component-title">useGenerator Hook</text>
+    <text x="130" y="38" text-anchor="middle" class="box-text">状态管理、卡片选择、配置</text>
+  </g>
+
+  <g transform="translate(420, 190)">
+    <rect x="0" y="0" width="260" height="70" class="api"/>
+    <text x="130" y="20" text-anchor="middle" class="api-title">IPC 调用</text>
+    <text x="130" y="40" text-anchor="middle" class="box-text">generator:run</text>
+    <text x="130" y="55" text-anchor="middle" class="box-text">→ 传递卡片列表和配置</text>
+  </g>
+
+  <!-- 处理流程 -->
+  <rect x="400" y="300" width="300" height="400" class="box"/>
+  <rect x="400" y="300" width="300" height="35" class="box-header" rx="8"/>
+  <rect x="400" y="328" width="300" height="7" fill="#f1f5f9"/>
+  <text x="550" y="325" text-anchor="middle" class="box-title">视频处理流程</text>
+
+  <g transform="translate(420, 350)">
+    <rect x="0" y="0" width="260" height="50" class="component"/>
+    <text x="130" y="20" text-anchor="middle" class="component-title">1. 下载视频</text>
+    <text x="130" y="38" text-anchor="middle" class="box-text">Bilibili / 本地文件</text>
+  </g>
+
+  <g transform="translate(420, 410)">
+    <rect x="0" y="0" width="260" height="50" class="component"/>
+    <text x="130" y="20" text-anchor="middle" class="component-title">2. 片段裁剪</text>
+    <text x="130" y="38" text-anchor="middle" class="box-text">按 start/end 时间裁剪</text>
+  </g>
+
+  <g transform="translate(420, 470)">
+    <rect x="0" y="0" width="260" height="50" class="component"/>
+    <text x="130" y="20" text-anchor="middle" class="component-title">3. 拼接处理</text>
+    <text x="130" y="38" text-anchor="middle" class="box-text">直接拼接 / 淡入淡出</text>
+  </g>
+
+  <g transform="translate(420, 530)">
+    <rect x="0" y="0" width="260" height="50" class="component"/>
+    <text x="130" y="20" text-anchor="middle" class="component-title">4. 导出视频</text>
+    <text x="130" y="38" text-anchor="middle" class="box-text">生成最终视频文件</text>
+  </g>
+
+  <g transform="translate(420, 590)">
+    <rect x="0" y="0" width="260" height="90" class="storage"/>
+    <text x="130" y="20" text-anchor="middle" class="storage-title">5. 进度与日志</text>
+    <text x="130" y="40" text-anchor="middle" class="box-text">• 实时进度更新</text>
+    <text x="130" y="55" text-anchor="middle" class="box-text">• 详细日志输出</text>
+    <text x="130" y="70" text-anchor="middle" class="box-text">• 错误提示</text>
+  </g>
+
+  <!-- ==================== 右侧：数据存储 ==================== -->
+
+  <!-- 本地卡片存储 -->
+  <rect x="780" y="80" width="350" height="180" class="box"/>
+  <rect x="780" y="80" width="350" height="35" class="box-header" rx="8"/>
+  <rect x="780" y="108" width="350" height="7" fill="#f1f5f9"/>
+  <text x="955" y="105" text-anchor="middle" class="box-title">本地卡片存储</text>
+
+  <g transform="translate(800, 130)">
+    <rect x="0" y="0" width="310" height="50" class="storage"/>
+    <text x="155" y="20" text-anchor="middle" class="storage-title">localStorage</text>
+    <text x="155" y="38" text-anchor="middle" class="box-text">key: "localCards"</text>
+  </g>
+
+  <g transform="translate(800, 190)">
+    <rect x="0" y="0" width="310" height="60" class="component"/>
+    <text x="155" y="20" text-anchor="middle" class="component-title">本地卡片结构</text>
+    <text x="30" y="40" class="box-text">id: "local-{timestamp}"</text>
+    <text x="180" y="40" class="box-text">localPath: "..."</text>
+    <text x="30" y="55" class="box-text">source: "local"</text>
+  </g>
+
+  <!-- 服务器API -->
+  <rect x="780" y="280" width="350" height="220" class="box"/>
+  <rect x="780" y="280" width="350" height="35" class="box-header" rx="8"/>
+  <rect x="780" y="308" width="350" height="7" fill="#f1f5f9"/>
+  <text x="955" y="285" text-anchor="middle" class="box-title">服务器 API (Express)</text>
+
+  <g transform="translate(800, 330)">
+    <rect x="0" y="0" width="310" height="40" class="api"/>
+    <text x="155" y="18" text-anchor="middle" class="api-title">POST /api/cards</text>
+    <text x="155" y="32" text-anchor="middle" class="box-text">创建卡片 → 生成CV号</text>
+  </g>
+
+  <g transform="translate(800, 380)">
+    <rect x="0" y="0" width="310" height="40" class="api"/>
+    <text x="155" y="18" text-anchor="middle" class="api-title">GET /api/cards</text>
+    <text x="155" y="32" text-anchor="middle" class="box-text">获取我的卡片列表</text>
+  </g>
+
+  <g transform="translate(800, 430)">
+    <rect x="0" y="0" width="310" height="40" class="api"/>
+    <text x="155" y="18" text-anchor="middle" class="api-title">GET /api/cards/public</text>
+    <text x="155" y="32" text-anchor="middle" class="box-text">搜索公开卡片</text>
+  </g>
+
+  <g transform="translate(800, 480)">
+    <rect x="0" y="0" width="310" height="10" class="storage"/>
+    <rect x="100" y="0" width="120" height="20" class="cv-badge"/>
+    <text x="160" y="14" text-anchor="middle" class="badge-text">CV号系统</text>
+  </g>
+
+  <!-- 数据存储 -->
+  <rect x="780" y="520" width="350" height="180" class="box"/>
+  <rect x="780" y="520" width="350" height="35" class="box-header" rx="8"/>
+  <rect x="780" y="548" width="350" height="7" fill="#f1f5f9"/>
+  <text x="955" y="545" text-anchor="middle" class="box-title">数据存储 (data.json)</text>
+
+  <g transform="translate(800, 570)">
+    <rect x="0" y="0" width="310" height="50" class="storage"/>
+    <text x="155" y="20" text-anchor="middle" class="storage-title">cards[]</text>
+    <text x="30" y="38" class="box-text">• CV号: "CV1a2B3c4" (唯一ID)</text>
+  </g>
+
+  <g transform="translate(800, 630)">
+    <rect x="0" y="0" width="310" height="50" class="storage"/>
+    <text x="155" y="20" text-anchor="middle" class="storage-title">cardIdCounter</text>
+    <text x="30" y="38" class="box-text">• 计数器: 0, 1, 2, 3...</text>
+  </g>
+
+  <!-- ==================== 箭头连接 ==================== -->
+
+  <!-- 卡片池 → 配置面板 -->
+  <path d="M 190 400 L 190 420" class="arrow"/>
+
+  <!-- 配置面板 → 生成引擎 -->
+  <path d="M 330 560 L 400 560 L 400 180 L 400 180" class="arrow"/>
+
+  <!-- 生成引擎 → 处理流程 -->
+  <path d="M 550 280 L 550 300" class="arrow"/>
+
+  <!-- 处理流程步骤 -->
+  <path d="M 550 400 L 550 410" class="arrow"/>
+  <path d="M 550 460 L 550 470" class="arrow"/>
+  <path d="M 550 520 L 550 530" class="arrow"/>
+
+  <!-- ← 本地卡片 -->
+  <path d="M 780 210 L 700 210 L 700 160 L 340 160" class="data-flow"/>
+  <text x="560" y="155" class="box-text" fill="#059669">本地卡片</text>
+
+  <!-- ← 服务器卡片 -->
+  <path d="M 780 370 L 700 370 L 700 190 L 340 190" class="data-flow"/>
+  <text x="560" y="185" class="box-text" fill="#059669">服务器卡片 (CV号)</text>
+
+  <!-- ← 收藏卡片 -->
+  <path d="M 780 390 L 720 390 L 720 220 L 340 220" class="data-flow"/>
+  <text x="560" y="215" class="box-text" fill="#059669">收藏夹</text>
+
+  <!-- ==================== 底部：输出 ==================== -->
+
+  <!-- 预览面板 -->
+  <rect x="400" y="730" width="300" height="150" class="box"/>
+  <rect x="400" y="730" width="300" height="35" class="box-header" rx="8"/>
+  <rect x="400" y="758" width="300" height="7" fill="#f1f5f9"/>
+  <text x="550" y="755" text-anchor="middle" class="box-title">预览面板</text>
+
+  <g transform="translate(420, 780)">
+    <rect x="0" y="0" width="260" height="40" class="component"/>
+    <text x="130" y="18" text-anchor="middle" class="component-title">序列统计</text>
+    <text x="130" y="32" text-anchor="middle" class="box-text">总时长、卡片数量</text>
+  </g>
+
+  <g transform="translate(420, 830)">
+    <rect x="0" y="0" width="260" height="40" class="component"/>
+    <text x="130" y="18" text-anchor="middle" class="component-title">生成结果</text>
+    <text x="130" y="32" text-anchor="middle" class="box-text">输出路径、警告信息</text>
+  </g>
+
+  <!-- 处理流程 → 预览 -->
+  <path d="M 550 700 L 550 730" class="arrow"/>
+
+  <!-- 图例 -->
+  <g transform="translate(780, 730)">
+    <rect x="0" y="0" width="350" height="150" fill="#f8fafc" stroke="#e2e8f0" rx="8"/>
+    <text x="175" y="25" text-anchor="middle" class="section-title">图例</text>
+
+    <rect x="20" y="40" width="30" height="20" class="component"/>
+    <text x="60" y="55" class="box-text">组件/功能</text>
+
+    <rect x="20" y="70" width="30" height="20" class="storage"/>
+    <text x="60" y="85" class="box-text">存储/数据</text>
+
+    <rect x="20" y="100" width="30" height="20" class="api"/>
+    <text x="60" y="115" class="box-text">API接口</text>
+
+    <line x1="180" y1="50" x2="210" y2="50" class="arrow"/>
+    <text x="220" y="55" class="box-text">流程方向</text>
+
+    <line x1="180" y1="80" x2="210" y2="80" class="data-flow"/>
+    <text x="220" y="85" class="box-text">数据流</text>
+
+    <rect x="180" y="100" width="30" height="18" class="badge"/>
+    <text x="195" y="113" text-anchor="middle" class="badge-text">NEW</text>
+    <text x="220" y="115" class="box-text">新功能</text>
+  </g>
+
+</svg>
