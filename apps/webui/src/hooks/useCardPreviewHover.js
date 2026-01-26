@@ -54,7 +54,7 @@ export default function useCardPreviewHover({
       });
     }
     if (card.source !== "local" && card.bvid) {
-      setWebviewPreviewPlayback(card.id, card.start, true);
+      setWebviewPreviewPlayback(card.id, card.start, true, card.end);
     }
   }, [setManageLoadingState, setWebviewManageIds, setWebviewPreviewPlayback]);
 
@@ -62,7 +62,7 @@ export default function useCardPreviewHover({
     if (!card) return;
     setHoveredManageId((prev) => (prev === card.id ? "" : prev));
     if (card.source !== "local" && card.bvid) {
-      setWebviewPreviewPlayback(card.id, card.start, false);
+      setWebviewPreviewPlayback(card.id, card.start, false, card.end);
     }
   }, [setWebviewPreviewPlayback]);
 
@@ -89,7 +89,7 @@ export default function useCardPreviewHover({
       });
     }
     if (card.source !== "local" && card.bvid) {
-      setWebviewPreviewPlayback(card.id, card.start, true);
+      setWebviewPreviewPlayback(card.id, card.start, true, card.end);
     }
   }, [setCommunityLoadingState, setWebviewCommunityIds, setWebviewPreviewPlayback]);
 
@@ -97,7 +97,7 @@ export default function useCardPreviewHover({
     if (!card) return;
     setHoveredCommunityId((prev) => (prev === card.id ? "" : prev));
     if (card.source !== "local" && card.bvid) {
-      setWebviewPreviewPlayback(card.id, card.start, false);
+      setWebviewPreviewPlayback(card.id, card.start, false, card.end);
     }
   }, [setWebviewPreviewPlayback]);
 

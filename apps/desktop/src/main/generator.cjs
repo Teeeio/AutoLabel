@@ -211,11 +211,149 @@ const STANDARD_ARGS = [
 ];
 
 /**
+ * 检测视频片段的平均音量（RMS）
+ * @param {String} videoPath - 视频文件路径
+ * @param {Number} start - 开始时间（秒）
+ * @param {Number} end - 结束时间（秒）
+ * @returns {Promise<Number>} 平均音量（dB，负值）
+ */
+async function detectVolumeLevel(videoPath, start, end) {
+  return new Promise((resolve, reject) => {
+    const ffmpegExecutable = typeof ffmpegPath === 'string' ? ffmpegPath : ffmpegPath.path;
+    const duration = end - start;
+
+    // 使用astats滤镜检测RMS音量
+    const args = [
+      '-ss', start.toString(),
+      '-i', videoPath,
+      '-t', duration.toString(),
+      '-af', 'astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-',
+      '-f', 'null',
+      '-'
+    ];
+
+    console.log('[Volume Detection] 检测音量...');
+    console.log('  ', ffmpegExecutable);
+    console.log('  ', args.join(' '));
+
+    const child = spawn(ffmpegExecutable, args, { windowsHide: true });
+    let stderr = "";
+    let rmsValues = [];
+
+    child.stderr.on("data", (data) => {
+      const text = data.toString();
+      stderr += text;
+
+      // 解析RMS值输出
+      const lines = text.split('\n');
+      for (const line of lines) {
+        if (line.includes('lavfi.astats.Overall.RMS_level')) {
+          const match = line.match(/RMS_level=(-?\d+\.\d+)/);
+          if (match) {
+            rmsValues.push(parseFloat(match[1]));
+          }
+        }
+      }
+    });
+
+    child.on("error", (err) => {
+      console.error('[Volume Detection] FFmpeg错误:', err);
+      reject(err);
+    });
+
+    child.on("close", (code) => {
+      if (rmsValues.length > 0) {
+        // 计算平均RMS值
+        const avgRMS = rmsValues.reduce((sum, val) => sum + val, 0) / rmsValues.length;
+        console.log(`[Volume Detection] 检测到 ${rmsValues.length} 个采样点，平均音量: ${avgRMS.toFixed(2)} dB`);
+        resolve(avgRMS);
+      } else {
+        console.warn('[Volume Detection] 未能检测到音量，使用默认值 -20 dB');
+        resolve(-20); // 默认值
+      }
+    });
+  });
+}
+
+/**
+ * 计算所有片段的目标音量和调整系数
+ * @param {Array} clips - 片段数组 [{ path, start, end, duration, title }]
+ * @param {String} strategy - 均衡策略 ('average' | 'median' | 'fixed')
+ * @param {Number} fixedTargetDb - 固定目标音量（dB），仅当strategy='fixed'时使用
+ * @returns {Promise<Map>} Map<clipIndex, adjustmentDb> 每个片段的音量调整量
+ */
+async function calculateVolumeAdjustments(clips, strategy = 'average', fixedTargetDb = -16) {
+  console.log(`[Volume Balance] 开始计算音量调整...`);
+  console.log(`[Volume Balance] 策略: ${strategy}`);
+
+  const volumeMap = new Map();
+
+  // 步骤1：检测所有片段的音量
+  sendLog('info', `检测 ${clips.length} 个片段的音量...`);
+
+  for (let i = 0; i < clips.length; i++) {
+    const clip = clips[i];
+    sendLog('debug', `检测片段 ${i + 1}/${clips.length}: ${clip.title}`);
+
+    try {
+      const rmsDb = await detectVolumeLevel(clip.path, clip.start, clip.end);
+      volumeMap.set(i, rmsDb);
+      sendLog('debug', `  片段 ${i + 1}: ${rmsDb.toFixed(2)} dB`);
+    } catch (error) {
+      console.error(`[Volume Balance] 检测片段 ${i + 1} 失败:`, error);
+      volumeMap.set(i, -20); // 使用默认值
+    }
+  }
+
+  // 步骤2：计算目标音量
+  const allVolumes = Array.from(volumeMap.values());
+  let targetVolume;
+
+  switch (strategy) {
+    case 'median':
+      // 中位数策略
+      const sorted = [...allVolumes].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      targetVolume = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+      sendLog('info', `目标音量（中位数）: ${targetVolume.toFixed(2)} dB`);
+      break;
+
+    case 'fixed':
+      // 固定值策略
+      targetVolume = fixedTargetDb;
+      sendLog('info', `目标音量（固定）: ${targetVolume.toFixed(2)} dB`);
+      break;
+
+    case 'average':
+    default:
+      // 平均值策略
+      targetVolume = allVolumes.reduce((sum, val) => sum + val, 0) / allVolumes.length;
+      sendLog('info', `目标音量（平均值）: ${targetVolume.toFixed(2)} dB`);
+      break;
+  }
+
+  // 步骤3：计算每个片段的调整量
+  const adjustments = new Map();
+  for (const [index, currentVolume] of volumeMap.entries()) {
+    const adjustment = targetVolume - currentVolume;
+    adjustments.set(index, adjustment);
+
+    const clip = clips[index];
+    if (Math.abs(adjustment) > 0.5) {
+      sendLog('info', `片段 ${clip.title}: ${currentVolume.toFixed(2)} dB → ${targetVolume.toFixed(2)} dB (${adjustment > 0 ? '+' : ''}${adjustment.toFixed(2)} dB)`);
+    }
+  }
+
+  console.log(`[Volume Balance] 计算完成，目标音量: ${targetVolume.toFixed(2)} dB`);
+  return { adjustments, targetVolume };
+}
+
+/**
  * Map 阶段：处理单个片段 (标准化)
  * @param {Object} clip - { path, start, end, duration, title }
  * @param {String} outputPath - 输出 .ts 文件路径
  * @param {Function} logFn - 日志回调
- * @param {Object} outputSettings - { quality, fadeInDuration, fadeOutDuration }
+ * @param {Object} outputSettings - { quality, fadeInDuration, fadeOutDuration, volumeAdjustmentDb }
  */
 async function processSingleClip(clip, outputPath, logFn, outputSettings = {}) {
   console.log(`[Map] 处理: ${clip.title}`);
@@ -264,6 +402,14 @@ async function processSingleClip(clip, outputPath, logFn, outputSettings = {}) {
 
   // 构建音频滤镜链
   let afFilters = [];
+
+  // 应用音量调整（在淡入淡出之前）
+  const volumeAdjustmentDb = outputSettings.volumeAdjustmentDb || 0;
+  if (hasAudio && !isTransition && volumeAdjustmentDb !== 0) {
+    afFilters.push(`volume=${volumeAdjustmentDb}dB`);
+    console.log(`[Map] ✓ 应用音量调整: ${volumeAdjustmentDb > 0 ? '+' : ''}${volumeAdjustmentDb.toFixed(2)} dB`);
+    logFn(`🔊 音量调整: ${volumeAdjustmentDb > 0 ? '+' : ''}${volumeAdjustmentDb.toFixed(2)} dB`);
+  }
 
   // 添加淡入淡出滤镜（使用时间参数，避免帧率转换导致的帧数不一致问题）
   const fadeOutStartTime = Math.max(0, clip.duration - fadeOutDuration);
@@ -406,7 +552,7 @@ async function concatClips(tempFiles, finalOutput, logFn) {
  * @param {String} outputPath - 最终输出路径
  * @param {Function} logFn - 日志回调
  * @param {Function} sendProgress - 进度回调
- * @param {Object} outputSettings - 输出设置 { quality, fadeInDuration, fadeOutDuration }
+ * @param {Object} outputSettings - 输出设置 { quality, fadeInDuration, fadeOutDuration, volumeBalance }
  */
 async function mapReduceGeneration(inputVideos, outputPath, logFn, sendProgress, outputSettings = {}) {
   console.log('[MapReduce] ========================================');
@@ -428,10 +574,36 @@ async function mapReduceGeneration(inputVideos, outputPath, logFn, sendProgress,
 
   try {
     // ==========================================
+    // 音量均衡阶段：计算所有片段的音量调整
+    // ==========================================
+    let volumeAdjustments = new Map();
+    if (outputSettings.volumeBalance && outputSettings.volumeBalance.enabled) {
+      console.log('[MapReduce] 音量均衡阶段...');
+      sendProgress?.({
+        step: "volume_balance",
+        label: "检测音量...",
+        current: 0,
+        total: inputVideos.length,
+        percent: 5
+      });
+
+      const { adjustments, targetVolume } = await calculateVolumeAdjustments(
+        inputVideos.filter(v => !v.isTransition), // 只处理非转场视频
+        outputSettings.volumeBalance.strategy || 'average',
+        outputSettings.volumeBalance.targetDb || -16
+      );
+
+      volumeAdjustments = adjustments;
+      sendLog('success', `音量均衡完成，目标音量: ${targetVolume.toFixed(2)} dB`);
+    }
+
+    // ==========================================
     // Map 阶段：并行处理所有片段
     // ==========================================
     console.log('[MapReduce] Map 阶段: 标准化所有片段...');
     logFn('📋 标准化处理所有片段...');
+
+    let nonTransitionIndex = 0; // 非转场视频的索引（用于音量调整）
 
     const tasks = inputVideos.map((video, index) => {
       return limit(async () => {
@@ -448,7 +620,14 @@ async function mapReduceGeneration(inputVideos, outputPath, logFn, sendProgress,
           percent: Math.round(((index + 1) / inputVideos.length) * 50) // Map 占 50% 进度
         });
 
-        await processSingleClip(video, tempFile, logFn, outputSettings);
+        // 获取当前片段的音量调整值
+        const clipOutputSettings = { ...outputSettings };
+        if (!video.isTransition && volumeAdjustments.size > 0) {
+          clipOutputSettings.volumeAdjustmentDb = volumeAdjustments.get(nonTransitionIndex) || 0;
+          nonTransitionIndex++;
+        }
+
+        await processSingleClip(video, tempFile, logFn, clipOutputSettings);
         console.log(`[MapReduce] ✅ 片段 ${index + 1} 处理完成: ${path.basename(tempFile)}`);
       });
     });

@@ -4,7 +4,7 @@ export default function usePreviewPlaybackControl() {
   // 跟踪已准备好的 webview
   const readyWebviews = useRef(new Set());
 
-  const setWebviewPreviewPlayback = useCallback((cardId, startTime, shouldPlay) => {
+  const setWebviewPreviewPlayback = useCallback((cardId, startTime, shouldPlay, endTime) => {
     const webviewId = `manage-preview-${cardId}`;
     const webview =
       document.getElementById(webviewId) ||
@@ -22,6 +22,7 @@ export default function usePreviewPlaybackControl() {
     }
 
     const start = Number.isFinite(startTime) ? startTime : 0;
+    const end = Number.isFinite(endTime) ? endTime : null;
 
     try {
       webview.executeJavaScript(`
@@ -34,20 +35,40 @@ export default function usePreviewPlaybackControl() {
 
           const shouldPlay = ${JSON.stringify(shouldPlay)};
           const start = ${JSON.stringify(start)};
+          const end = ${JSON.stringify(end)};
 
-          console.log('[PreviewPlayback] Found video, shouldPlay:', shouldPlay, ', start:', start, ', currentTime:', video.currentTime, ', paused:', video.paused);
+          console.log('[PreviewPlayback] Found video, shouldPlay:', shouldPlay, ', start:', start, ', end:', end, ', currentTime:', video.currentTime, ', paused:', video.paused);
 
-          // 确保视频静音以便自动播放
-          if (video.muted !== true) {
-            video.muted = true;
-            console.log('[PreviewPlayback] Muted video for autoplay');
+          // 标记是否需要取消静音
+          const shouldUnmute = video.muted;
+
+          // 移除之前的监听器（如果存在）
+          if (video._previewTimeUpdateHandler) {
+            video.removeEventListener('timeupdate', video._previewTimeUpdateHandler);
+            video._previewTimeUpdateHandler = null;
           }
 
           if (shouldPlay) {
+            // 首先静音以确保能自动播放
+            video.muted = true;
+
             // 设置播放位置
             if (Math.abs(video.currentTime - start) > 0.5) {
               video.currentTime = start;
               console.log('[PreviewPlayback] Seeked to', start);
+            }
+
+            // 如果有结束时间，添加监听器限制播放范围
+            if (end !== null) {
+              video._previewTimeUpdateHandler = function() {
+                if (video.currentTime >= end) {
+                  video.pause();
+                  video.currentTime = start;
+                  console.log('[PreviewPlayback] Reached end time', end, ', resetting to', start);
+                }
+              };
+              video.addEventListener('timeupdate', video._previewTimeUpdateHandler);
+              console.log('[PreviewPlayback] Added timeupdate listener, end time:', end);
             }
 
             // 尝试播放
@@ -55,8 +76,15 @@ export default function usePreviewPlaybackControl() {
             if (playPromise) {
               playPromise.then(() => {
                 console.log('[PreviewPlayback] Playback started successfully');
+
+                // 播放成功后，尝试取消静音
+                setTimeout(() => {
+                  video.muted = false;
+                  console.log('[PreviewPlayback] Unmuted video after successful playback');
+                }, 100);
               }).catch((err) => {
                 console.warn('[PreviewPlayback] Play failed:', err.name, err.message);
+                // 如果播放失败，保持静音状态
               });
             }
           } else {
@@ -66,6 +94,13 @@ export default function usePreviewPlaybackControl() {
               video.currentTime = start;
               console.log('[PreviewPlayback] Reset to', start);
             }
+
+            // 移除监听器
+            if (video._previewTimeUpdateHandler) {
+              video.removeEventListener('timeupdate', video._previewTimeUpdateHandler);
+              video._previewTimeUpdateHandler = null;
+            }
+
             console.log('[PreviewPlayback] Paused and reset');
           }
           return true;

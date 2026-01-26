@@ -4,7 +4,8 @@ export default function useDetailWebview({
   detailCard,
   setDetailWebviewLoading,
   setDetailWebviewLoadStartTime,
-  patchWebviewIframeHeight
+  patchWebviewIframeHeight,
+  setCurrentTime
 }) {
   useEffect(() => {
     if (!detailCard) return;
@@ -25,20 +26,18 @@ export default function useDetailWebview({
       const startTime = Number.isFinite(detailCard.start) ? detailCard.start : 0;
       const endTime = Number.isFinite(detailCard.end) ? detailCard.end : undefined;
 
-      const initializeVideo = () => {
-        const currentWebview = document.getElementById(webviewId);
-        if (!currentWebview) {
-          console.log("Detail webview no longer exists, skipping initialization");
-          return;
-        }
+      console.log('[Detail Webview] Sending seek command via IPC:', startTime);
 
-        currentWebview.executeJavaScript(`          (function() {            const video = document.querySelector('video');            const player = document.querySelector('#bilibili-player');            if (video) {              // 设置起位?             video.currentTime = ${startTime};              video.pause().catch(e => console.log('Auto-pause failed:', e));              // 添加撔范围限制（循玒放）              video.addEventListener('timeupdate', function() {                // 徎撔：到达结束时回到起位置                if (${endTime} !== undefined && video.currentTime >= ${endTime}) {                  video.currentTime = ${startTime};                  // 如果视正在撔，继绒放\n                  if (!video.paused) {                    video.play().catch(e => console.log('Auto-loop play failed:', e));                  }                }              });            }            if (player) {              // 用控制栏的点击，保留视区域的?             const controlWrap = player.querySelector('.bpx-player-control-wrap');              if (controlWrap) {                controlWrap.style.pointerEvents = 'none';              }            }            return true;          })();        `).catch((err) => {
-          console.error("Failed to initialize detail webview:", err);
-        });
-      };
+      // 通过IPC发送seek命令，而不是直接执行JavaScript
+      webview.send("player:command", { type: "seek", time: startTime });
 
-      setTimeout(initializeVideo, 500);
-      setTimeout(initializeVideo, 2000);
+      // 通过IPC发送range命令设置播放范围
+      if (endTime !== undefined) {
+        webview.send("player:command", { type: "range", start: startTime, end: endTime });
+      }
+
+      // 通过IPC发送pause命令确保视频暂停
+      webview.send("player:command", { type: "pause" });
     };
 
     webview.addEventListener("dom-ready", handler);
@@ -47,4 +46,36 @@ export default function useDetailWebview({
       webview.removeEventListener("dom-ready", handler);
     };
   }, [detailCard, patchWebviewIframeHeight, setDetailWebviewLoadStartTime, setDetailWebviewLoading]);
+
+  // 监听webview发送的player:state消息，同步currentTime
+  useEffect(() => {
+    if (!detailCard) return;
+
+    const webviewId = `detail-preview-${detailCard.bvid}`;
+    const webview = document.getElementById(webviewId);
+    if (!webview) return;
+
+    const handlePlayerState = (event) => {
+      console.log('[Detail Webview] Received ipc-message:', event.channel, event.args);
+
+      if (event.channel !== "player:state") return;
+
+      const payload = event.args?.[0] || {};
+      console.log('[Detail Webview] Received player:state payload:', payload);
+
+      if (Number.isFinite(payload.currentTime)) {
+        console.log('[Detail Webview] Setting currentTime to:', payload.currentTime);
+        setCurrentTime(payload.currentTime);
+      }
+    };
+
+    webview.addEventListener("ipc-message", handlePlayerState);
+
+    console.log('[Detail Webview] Added ipc-message listener to webview:', webviewId);
+
+    return () => {
+      webview.removeEventListener("ipc-message", handlePlayerState);
+      console.log('[Detail Webview] Removed ipc-message listener from webview:', webviewId);
+    };
+  }, [detailCard, setCurrentTime]);
 }

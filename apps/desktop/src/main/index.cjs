@@ -2,6 +2,10 @@ const { app, BrowserWindow, ipcMain, session, protocol, webContents } = require(
 const fs = require("fs");
 const path = require("path");
 const { pathToFileURL } = require("url");
+
+// 启动社区服务器
+const { startCommunityServer } = require("./community-server.cjs");
+
 const { runGeneration } = require("./generator.cjs");
 const {
   getVideoInfo,
@@ -364,6 +368,13 @@ ipcMain.on("webview:register", (_event, payload) => {
 });
 
 app.whenReady().then(() => {
+  // 启动社区服务器
+  startCommunityServer().then(() => {
+    console.log('[主进程] 社区服务器已启动');
+  }).catch((err) => {
+    console.error('[主进程] 社区服务器启动失败:', err);
+  });
+
   const previewDir = path.join(app.getPath("userData"), "preview");
   if (!fs.existsSync(previewDir)) {
     fs.mkdirSync(previewDir, { recursive: true });

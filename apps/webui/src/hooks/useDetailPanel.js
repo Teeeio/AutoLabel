@@ -27,7 +27,13 @@ export default function useDetailPanel({
   const handleOpenCardDetail = useCallback((card) => {
     detailWebviewKeyRef.current += 1;
     setDetailCard(card);
-  }, [detailWebviewKeyRef, setDetailCard]);
+
+    // 设置当前时间到卡片的起始位置，这样滑块会自动移动到正确位置
+    if (card && card.start !== undefined) {
+      console.log('[handleOpenCardDetail] Setting currentTime to card.start:', card.start);
+      setCurrentTime(card.start);
+    }
+  }, [detailWebviewKeyRef, setDetailCard, setCurrentTime]);
 
   const handleCloseDetail = useCallback(() => {
     setDetailCard(null);

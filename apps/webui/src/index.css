@@ -3824,6 +3824,41 @@ body {
   color: #64748b;
 }
 
+.rule-options {
+  margin-top: 12px;
+}
+
+.checkbox-label {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.checkbox-label:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.checkbox-label input[type="checkbox"] {
+  margin: 0;
+}
+
+.checkbox-content strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.checkbox-content p {
+  margin: 0;
+  font-size: 11px;
+  color: #64748b;
+}
+
 .rule-params {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -4935,4 +4970,287 @@ body {
 
 .file-picker button {
   white-space: nowrap;
+}
+
+/* ==================== 新的生成器布局样式 ==================== */
+.generator-layout-new {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+}
+
+/* 主内容区 */
+.generator-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 选项卡导航 */
+.generator-tabs-nav {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.generator-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.generator-tab:hover {
+  background: #ffffff;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.generator-tab.is-active {
+  background: #ffffff;
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.tab-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.tab-label {
+  font-size: 13px;
+}
+
+.tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 9px;
+}
+
+.generator-tab:not(.is-active) .tab-count {
+  background: var(--text-tertiary);
+}
+
+/* 选项卡内容区 */
+.generator-tabs-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.panel-header {
+  padding-bottom: 16px;
+  border-bottom: 2px solid var(--border);
+}
+
+.panel-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--text-primary);
+}
+
+.panel-stats {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* 配置组 */
+.config-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.config-group h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+/* 预览区域 */
+.preview-placeholder {
+  position: static !important;
+  inset: auto !important;
+  background: transparent !important;
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-secondary);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.preview-placeholder p {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+}
+
+/* 全宽按钮 */
+.full-width {
+  width: 100%;
+}
+
+/* 大按钮 */
+.large {
+  padding: 12px 24px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* 生成按钮组 */
+.generator-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+/* 日志区域 */
+.logs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.logs-header h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.logs-content {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.log-entry {
+  padding: 4px 0;
+  color: var(--text-secondary);
+}
+
+.logs-empty {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* ==================== 生成器页面卡片hover预览 ==================== */
+.generator-card-item {
+  position: relative;
+  overflow: visible; /* 改为visible，允许预览显示在外面 */
+}
+
+/* 预览按钮 */
+.card-preview-button {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5f9;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: auto;
+  color: var(--text-secondary);
+}
+
+.card-preview-button:hover {
+  background: var(--primary);
+  color: #ffffff;
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.card-preview-button svg {
+  transition: transform 0.2s ease;
+}
+
+.card-preview-button:hover svg {
+  transform: scale(1.1);
+}
+
+/* 预览层 */
+.card-preview-layer {
+  position: absolute;
+  top: 100%; /* 显示在卡片下方 */
+  left: 0;
+  right: 0;
+  height: 200px; /* 固定高度 */
+  margin-top: 8px; /* 与卡片保持间距 */
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  z-index: 100;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* hover预览按钮时显示预览层 */
+.card-preview-button:hover ~ .card-preview-layer {
+  opacity: 1;
+  visibility: visible;
+}
+
+.card-preview-layer .card-preview-webview {
+  pointer-events: auto;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* 确保预览层不会被裁剪 */
+.pool-list {
+  overflow-y: auto;
+  overflow-x: visible;
 }

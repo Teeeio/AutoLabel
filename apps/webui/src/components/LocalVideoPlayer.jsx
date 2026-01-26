@@ -218,6 +218,8 @@ export default function LocalVideoPlayer({ localPath, localVideoRef, setDuration
 
       const nextEnd = Number.isFinite(activeCard.end) ? activeCard.end : (duration || 30);
 
+      console.log('[LocalVideoPlayer] activeCard changed:', activeCard.title, 'range:', nextStart, '-', nextEnd);
+
       setRangeStart(nextStart);
 
       setRangeEnd(nextEnd);
@@ -234,19 +236,48 @@ export default function LocalVideoPlayer({ localPath, localVideoRef, setDuration
 
 
 
-      // 濡傛灉褰撳墠鎾斁浣嶇疆涓嶅湪鏂板尯闂村唴锛屼慨姝ｅ埌鏂板尯闂寸殑璧峰浣嶇疆
+      // 鎬ㄨ姛澶勭悊锛氭瘡涓齰ctiveCard鍙樺寲鏃讹紝鎬omp杩愬嚭浣嶇疆
+      // 杩欐牱鍦ㄦ墦寮璇︽椂锛岃棰戦亶鎬琱链缁濆埌璧峰浣嶇疆
 
       if (localVideoRef.current) {
 
         const current = localVideoRef.current.currentTime;
 
-        if (current < nextStart || current > nextEnd) {
+        // 妫€鏌锛氬垯涓嶅簲褰撳墠浣嶇疆鏄︽槸鍦ㄥ尯闂村唴锛屽潯琚id鍙樺寲灏辨嵁缃垯璧�浣嶇疆
+        const shouldSeek = Math.abs(current - nextStart) > 0.1; // 榧樿鐢宑素晩锛岄伩鍏嶆暍瀵煎害
 
-          console.log('[鑼冨洿鍙樺寲] 鎾斁浣嶇疆', current, '涓嶅湪鏂板尯闂村唴 [', nextStart, ',', nextEnd, ']锛屼慨姝ｅ埌', nextStart);
+        if (shouldSeek) {
+
+          console.log('[LocalVideoPlayer] Seeking from', current, 'to', nextStart);
 
           localVideoRef.current.currentTime = nextStart;
 
+          // 缁珮鎬栫洿鎸夊瓙淇℃伅锢袁允箞𒵺ma璇存槂
+          currentTimeRef.current = nextStart;
+
           setCurrentTime(nextStart);
+
+          // 绱诲巻鏇存柊playhead浣嶇疆锛岃繘璇磋窡鏄剧娲
+          requestAnimationFrame(() => {
+            if (!playheadRef.current || !timelineBarRef.current || !duration) return;
+
+            const baseWidth = timelineBarRef.current ? timelineBarRef.current.offsetWidth : 0;
+            if (!baseWidth) return;
+
+            const zoomState = zoomStateRef.current;
+            const { zoomScale, zoomTranslateX } = zoomState;
+
+            const xPUnscaled = (nextStart / duration) * baseWidth;
+            const xPScaled = xPUnscaled * zoomScale + zoomTranslateX;
+
+            playheadRef.current.style.left = `${xPScaled}px`;
+
+            console.log('[LocalVideoPlayer] Force updated playhead to', xPScaled, 'px (time:', nextStart, ')');
+          });
+
+        } else {
+
+          console.log('[LocalVideoPlayer] Already at target position', current);
 
         }
 

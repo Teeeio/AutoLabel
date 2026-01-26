@@ -1,9 +1,11 @@
 const { ipcRenderer } = require("electron");
 
 // 创建一个日志函数，通过 IPC 发送到主进程
-const bilibiliLog = (message, ...args) => {
+const bilibiliLog = (message) => {
   try {
-    ipcRenderer.sendToHost('bilibili:log', { message, args });
+    if (ipcRenderer && ipcRenderer.sendToHost) {
+      ipcRenderer.sendToHost('bilibili:log', { message });
+    }
   } catch (e) {
     // 如果 IPC 还没准备好，就忽略
   }
@@ -222,7 +224,6 @@ function ensureVideo() {
 }
 
 function initClipRange() {
-  bilibiliLog('[Bilibili Z/X] initClipRange called, clipApi:', !!clipApi, 'videoEl:', !!videoEl);
   if (clipApi || !videoEl) return;
   const $ = (sel, root = document) => root.querySelector(sel);
   const progressWrap =
@@ -802,7 +803,6 @@ function initClipRange() {
     // 保存最近拖拽的手柄，供 Z/X 快捷键使用
     if (frameAdjustState) {
       frameAdjustState.lastDragHandle = kind;
-      bilibiliLog('[Bilibili Z/X] onPointerDown: saved lastDragHandle =', kind);
     }
 
     dragging = kind;
@@ -1102,18 +1102,10 @@ function initClipRange() {
     lastTipUpdate: 0
   };
 
-  bilibiliLog('[Bilibili Z/X] Frame adjust state initialized');
-  bilibiliLog('[Bilibili Z/X] Setting up ZX keyboard event listeners');
-
   window.addEventListener(
     "keydown",
     (e) => {
       const lowerKey = e.key?.toLowerCase?.();
-
-      // 调试：记录所有按键
-      if (["z", "x"].includes(lowerKey)) {
-        bilibiliLog('[Bilibili Z/X] Z/X key detected:', lowerKey, 'target:', e.target?.tagName);
-      }
 
       // Z/X 帧级别调整
       if (lowerKey === "z" || lowerKey === "x") {
@@ -1130,7 +1122,6 @@ function initClipRange() {
         // 检查是否有最近拖拽过的手柄
         const lastDragHandle = frameAdjustState.lastDragHandle;
         if (!lastDragHandle || (lastDragHandle !== 'start' && lastDragHandle !== 'end')) {
-          bilibiliLog('[Bilibili Z/X] No valid lastDragHandle:', lastDragHandle);
           return;
         }
 
@@ -1161,8 +1152,6 @@ function initClipRange() {
           // Ignore if IPC not ready
         }
 
-        bilibiliLog('[Bilibili Z/X] Key pressed:', lowerKey, 'direction:', frameAdjustState.direction, 'handle:', lastDragHandle);
-
         // 短按：立即移动一帧
         const r = getRange();
         if (!r) return;
@@ -1176,19 +1165,16 @@ function initClipRange() {
             videoEl.currentTime = next;
           }
           showFrameAdjustTip(next, 'start');
-          bilibiliLog('[Bilibili Z/X] Moved start from', r.s, 'to', next, 'and seeked to', next);
         } else {
           const next = clamp(r.e + delta, r.s + getMinSpan(r.d), r.d);
           setRange(r.s, next);
           showFrameAdjustTip(next, 'end');
-          bilibiliLog('[Bilibili Z/X] Moved end from', r.e, 'to', next);
         }
 
         // 长按检测
         frameAdjustState.timeout = setTimeout(() => {
           if (frameAdjustState.key !== lowerKey) return;
           frameAdjustState.long = true;
-          bilibiliLog('[Bilibili Z/X] Long press detected, starting acceleration');
           startFrameAdjustLoop();
         }, 220);
 
@@ -1218,7 +1204,6 @@ function initClipRange() {
           return;
         }
 
-        bilibiliLog('[Bilibili Z/X] Key released:', lowerKey);
 
         // 通知主应用停止高亮时间戳
         try {
@@ -1383,9 +1368,7 @@ function initClipRange() {
           const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
           tipImg.src = dataUrl;
           tipImg.style.visibility = "visible";
-          bilibiliLog('[Bilibili Z/X] Captured current frame at', videoEl.currentTime.toFixed(3));
         } catch (e) {
-          bilibiliLog('[Bilibili Z/X] Failed to capture frame:', e.message);
         }
       });
       return;
@@ -1418,9 +1401,7 @@ function initClipRange() {
           tipImg.src = dataUrl;
           tipImg.style.visibility = "visible";
 
-          bilibiliLog('[Bilibili Z/X] Captured actual video frame at', timeValue.toFixed(3));
         } catch (e) {
-          bilibiliLog('[Bilibili Z/X] Failed to capture frame:', e.message);
         }
 
         // 恢复播放状态
@@ -1435,7 +1416,6 @@ function initClipRange() {
     try {
       videoEl.currentTime = timeValue;
     } catch (e) {
-      bilibiliLog('[Bilibili Z/X] Failed to seek:', e.message);
       videoEl.removeEventListener('seeked', onSeeked);
 
       // seek 失败时恢复播放
@@ -1478,6 +1458,62 @@ function applyCommand(payload = {}) {
   if (type === "seek") {
     const target = Number.isFinite(payload.time) ? payload.time : videoEl.currentTime || 0;
     videoEl.currentTime = clamp(target, 0, Number.isFinite(videoEl.duration) ? videoEl.duration : target);
+
+    // 立即发送状态更新
+    sendState();
+
+    // 延迟更新B站播放器UI
+    setTimeout(() => {
+      try {
+        const player = document.querySelector('#bilibili-player');
+        if (!player) return;
+
+        // 更新进度条
+        const progressBar = player.querySelector('.bpx-player-progress-current');
+        if (progressBar && videoEl.duration) {
+          const pct = (target / videoEl.duration) * 100;
+          progressBar.style.width = pct + '%';
+        }
+
+        // 更新滑块位置（尝试多个可能的类名）
+        const sliderSelectors = [
+          '.bpx-player-progress-thumb',
+          '.bpx-player-slider-thumb',
+          '.bpx-player-progress-dot',
+          '.bpx-player-scrubber-button'
+        ];
+
+        for (const selector of sliderSelectors) {
+          const slider = player.querySelector(selector);
+          if (slider && videoEl.duration) {
+            const pct = (target / videoEl.duration) * 100;
+            slider.style.left = pct + '%';
+            console.log('[Bilibili UI] Updated slider position:', selector, pct + '%');
+          }
+        }
+
+        // 更新时间显示
+        const timeText = player.querySelector('.bpx-player-progress-current-time');
+        if (timeText) {
+          const mins = Math.floor(target / 60);
+          const secs = Math.floor(target % 60);
+          timeText.textContent = (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
+        }
+
+        // 触发进度条更新事件
+        const progressWrap = player.querySelector('.bpx-player-progress-wrap');
+        if (progressWrap) {
+          const progressEvent = new CustomEvent('progressupdate', {
+            bubbles: true,
+            detail: { currentTime: target, duration: videoEl.duration }
+          });
+          progressWrap.dispatchEvent(progressEvent);
+        }
+      } catch (e) {
+        console.error('[Bilibili UI] Failed to update player UI:', e);
+      }
+    }, 100);
+
     return;
   }
   if (type === "play") {
@@ -1497,6 +1533,7 @@ function applyCommand(payload = {}) {
     } else if (videoEl.volume === 0) {
       videoEl.muted = true;
     }
+    sendState();
     return;
   }
   if (type === "rate") {
@@ -1551,9 +1588,15 @@ window.addEventListener("DOMContentLoaded", () => {
 });
 
 ipcRenderer.on("player:command", (_event, payload = {}) => {
+  console.log('[Bilibili Preload] Received player:command:', JSON.stringify(payload));
+
   if (!videoEl) {
+    console.log('[Bilibili Preload] Video not ready, queuing command');
     pendingCommands.push(payload);
     return;
   }
+
+  console.log('[Bilibili Preload] Applying command, type:', payload.type);
   applyCommand(payload);
+  console.log('[Bilibili Preload] Command applied, currentTime:', videoEl.currentTime);
 });

@@ -678,7 +678,8 @@ export default function App() {
     detailCard,
     setDetailWebviewLoading,
     setDetailWebviewLoadStartTime,
-    patchWebviewIframeHeight
+    patchWebviewIframeHeight,
+    setCurrentTime
   });
 
 

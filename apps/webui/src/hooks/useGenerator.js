@@ -9,7 +9,8 @@ export default function useGenerator({ myCards, favorites }) {
 
   // 拼接规则
   const [rules, setRules] = useState({
-    mode: "sequential" // 'sequential' | 'shuffle' | 'random'
+    mode: "sequential", // 'sequential' | 'shuffle' | 'random'
+    distributeClipTags: false // 是否均匀分布剪辑标签
   });
 
   // 输出设置
@@ -17,6 +18,13 @@ export default function useGenerator({ myCards, favorites }) {
     quality: "medium",
     fadeInDuration: 0,  // 淡入时长（秒）
     fadeOutDuration: 0  // 淡出时长（秒）
+  });
+
+  // 音量均衡配置
+  const [volumeBalance, setVolumeBalance] = useState({
+    enabled: false,              // 是否启用音量均衡
+    strategy: "average",         // 均衡策略: 'average' | 'median' | 'fixed'
+    targetDb: -16                // 固定目标音量（dB），仅当strategy='fixed'时使用
   });
 
   // 转场配置
@@ -92,13 +100,68 @@ export default function useGenerator({ myCards, favorites }) {
     setSelectedCardIds(newSelected);
   }, [selectedCardIds, filteredCards]);
 
+  // 标签分散算法：让相同剪辑标签的视频尽量分散
+  const distributeByClipTags = useCallback((cards) => {
+    if (!cards || cards.length === 0) return [];
+
+    // 步骤1：收集所有有clipTags的卡片，按标签分组
+    const cardsWithTags = [];
+    const cardsWithoutTags = [];
+    const tagGroups = new Map(); // tag -> Array of cards
+
+    cards.forEach(card => {
+      const clipTags = card.clipTags || [];
+      if (clipTags.length === 0) {
+        cardsWithoutTags.push(card);
+      } else {
+        // 取第一个剪辑标签作为主要分组依据
+        const mainTag = clipTags[0];
+        if (!tagGroups.has(mainTag)) {
+          tagGroups.set(mainTag, []);
+        }
+        tagGroups.get(mainTag).push(card);
+        cardsWithTags.push(card);
+      }
+    });
+
+    // 步骤2：轮询从各组中取卡片
+    const distributed = [];
+    const groupEntries = Array.from(tagGroups.entries());
+
+    // 找出最大的组大小，确定需要多少轮
+    const maxGroupSize = Math.max(...groupEntries.map(([_, cards]) => cards.length));
+
+    for (let round = 0; round < maxGroupSize; round++) {
+      // 每一轮从每个组中取一个卡片（如果还有剩余）
+      for (const [tag, groupCards] of groupEntries) {
+        if (round < groupCards.length) {
+          distributed.push(groupCards[round]);
+        }
+      }
+    }
+
+    // 步骤3：将没有标签的卡片添加到最后
+    distributed.push(...cardsWithoutTags);
+
+    console.log('[标签分散] 原始卡片数:', cards.length, '分散后:', distributed.length);
+    console.log('[标签分散] 标签组数:', tagGroups.size, '无标签卡片:', cardsWithoutTags.length);
+
+    return distributed;
+  }, []);
+
   // 生成序列预览
   const generatePreview = useCallback(() => {
     if (selectedCards.length === 0) return;
 
     let sequence = [...selectedCards];
 
-    // 应用拼接模式
+    // 步骤1：如果启用标签分散，先应用标签分散算法
+    if (rules.distributeClipTags) {
+      console.log('[生成预览] 应用标签分散算法');
+      sequence = distributeByClipTags(sequence);
+    }
+
+    // 步骤2：应用拼接模式
     switch (rules.mode) {
       case "shuffle":
         // Fisher-Yates 洗牌
@@ -135,7 +198,7 @@ export default function useGenerator({ myCards, favorites }) {
     });
 
     setPreviewSequence(withTimeline);
-  }, [selectedCards, rules]);
+  }, [selectedCards, rules, distributeByClipTags]);
 
   // 执行生成
   const runGenerator = useCallback(async () => {
@@ -168,7 +231,13 @@ export default function useGenerator({ myCards, favorites }) {
             console.log('[useGenerator] Generating sequence from selected cards');
             let sequence = [...selectedCards];
 
-            // 应用拼接模式
+            // 步骤1：如果启用标签分散，先应用标签分散算法
+            if (rules.distributeClipTags) {
+              console.log('[useGenerator] 应用标签分散算法');
+              sequence = distributeByClipTags(sequence);
+            }
+
+            // 步骤2：应用拼接模式
             switch (rules.mode) {
               case "shuffle":
                 console.log('[useGenerator] Applying shuffle mode');
@@ -236,7 +305,8 @@ export default function useGenerator({ myCards, favorites }) {
         })),
         rules: rules,
         output: output,
-        transitions: transitions
+        transitions: transitions,
+        volumeBalance: volumeBalance
       };
 
       console.log('[useGenerator] 准备调用 generator.run');
@@ -278,7 +348,7 @@ export default function useGenerator({ myCards, favorites }) {
       }
       setGenerating(false);
     }
-  }, [selectedCards, previewSequence, rules, output, transitions]);
+  }, [selectedCards, previewSequence, rules, output, transitions, distributeByClipTags]);
 
   // 收集所有卡片中的唯一标签（包括视频标签和剪辑标签）
   const allTags = useMemo(() => {
@@ -331,6 +401,8 @@ export default function useGenerator({ myCards, favorites }) {
     setOutput,
     transitions,
     setTransitions,
+    volumeBalance,
+    setVolumeBalance,
     previewSequence,
     generating,
     progress,

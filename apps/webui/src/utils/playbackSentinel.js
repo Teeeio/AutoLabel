@@ -17,10 +17,12 @@ class PlaybackSentinel {
   checkAndPauseUnhovered() {
     const hoveredCardId = this.getHoveredCardId();
     const hoveredManageId = window.__hoveredManageId || null;
+    const hoveredGeneratorId = window.__hoveredGeneratorId || null;
 
-    // 获取所有社区预览webview和管理页面预览webview
+    // 获取所有社区预览webview、管理页面预览webview、生成器页面预览webview
     const communityWebviews = document.querySelectorAll('webview[id^="community-preview-"]');
     const manageWebviews = document.querySelectorAll('webview[id^="manage-preview-"]');
+    const generatorWebviews = document.querySelectorAll('webview[id^="generator-preview-"]');
 
     // 检查社区页面卡片
     communityWebviews.forEach((webview) => {
@@ -40,6 +42,17 @@ class PlaybackSentinel {
 
       // 如果这个webview对应的卡片没有被hover，检查是否在播放
       if (cardId !== hoveredManageId) {
+        this.checkAndPauseWebview(webview, cardId);
+      }
+    });
+
+    // 检查生成器页面卡片
+    generatorWebviews.forEach((webview) => {
+      const cardId = webview.getAttribute('data-card-id');
+      if (!cardId) return;
+
+      // 如果这个webview对应的卡片没有被hover，检查是否在播放
+      if (cardId !== hoveredGeneratorId) {
         this.checkAndPauseWebview(webview, cardId);
       }
     });
